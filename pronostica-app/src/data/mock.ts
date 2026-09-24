@@ -14,17 +14,12 @@ export interface League {
 }
 
 /**
- * DATI DEMO TEMPORANEI — richiesti esplicitamente per verificare che ogni
- * schermata funzioni prima di tornare allo stato reale "utente nuovo senza
- * leghe" (vedi commit precedente). Da rimuovere quando il test è concluso:
- * cercare "DATI DEMO TEMPORANEI" in questo file.
+ * Stato iniziale reale: l'utente parte senza leghe private. L'unica voce
+ * sempre presente è la classifica generale della piattaforma (nessuna
+ * posizione/punteggio personale finché non ha giocato).
  */
 export const leagues: League[] = [
-  { id: 'gen', name: 'Classifica generale', members: 48312, points: 712, position: 1284, delta: 37, isGeneral: true, isPrivate: false },
-  { id: 'l1', name: 'Fantabar Lecco', members: 24, points: 712, position: 3, delta: 1, isPrivate: true, code: 'LEC-4K9P', maxMembers: 30 },
-  { id: 'l2', name: 'Ufficio Nord', members: 11, points: 640, position: 5, delta: -2, isPrivate: true, code: 'UFN-8B2X', maxMembers: 20 },
-  { id: 'l3', name: 'Cugini FC', members: 6, points: 780, position: 1, delta: 3, isPrivate: true, code: 'CUG-3M7Q', maxMembers: 10, createdByMe: true },
-  { id: 'pub1', name: 'Curva Nord Italia', members: 1842, points: 712, position: 96, delta: 0, isPrivate: false, description: 'La lega pubblica dei tifosi più accesi, da Nord a Sud.' },
+  { id: 'gen', name: 'Classifica generale', members: 48312, points: null, position: null, delta: null, isGeneral: true, isPrivate: false },
 ];
 
 export interface LeagueMember {
@@ -36,36 +31,8 @@ export interface LeagueMember {
   isCreator?: boolean;
 }
 
-// DATI DEMO TEMPORANEI (vedi nota sopra su `leagues`).
-export const leagueMembers: Record<string, LeagueMember[]> = {
-  l1: [
-    { position: 1, name: 'giuliarossi', points: 764, initials: 'GR', isCreator: true },
-    { position: 2, name: 'davide_c', points: 748, initials: 'DC' },
-    { position: 3, name: 'marcobianchi_87 (tu)', points: 712, initials: 'MB', isYou: true },
-    { position: 4, name: 'saralupo', points: 706, initials: 'SL' },
-    { position: 5, name: 'andreap', points: 694, initials: 'AP' },
-  ],
-  l2: [
-    { position: 1, name: 'fedem', points: 701, initials: 'FM', isCreator: true },
-    { position: 2, name: 'lucat', points: 668, initials: 'LT' },
-    { position: 3, name: 'elenaf', points: 655, initials: 'EF' },
-    { position: 4, name: 'nicolos', points: 649, initials: 'NS' },
-    { position: 5, name: 'marcobianchi_87 (tu)', points: 640, initials: 'MB', isYou: true },
-  ],
-  l3: [
-    { position: 1, name: 'marcobianchi_87 (tu)', points: 780, initials: 'MB', isYou: true, isCreator: true },
-    { position: 2, name: 'paolod', points: 741, initials: 'PD' },
-    { position: 3, name: 'martinag', points: 719, initials: 'MG' },
-  ],
-  pub1: [
-    { position: 1, name: 'lucafontana', points: 861, initials: 'LF' },
-    { position: 2, name: 'elemarini', points: 854, initials: 'EM' },
-    { position: 3, name: 'robibrambilla', points: 849, initials: 'RB' },
-    { position: 4, name: 'silviav_90', points: 843, initials: 'SV' },
-    { position: 5, name: 'tommygalli', points: 840, initials: 'TG' },
-    { position: 96, name: 'marcobianchi_87 (tu)', points: 712, initials: 'MB', isYou: true },
-  ],
-};
+// Nessuna lega privata/pubblica dell'utente allo stato iniziale, quindi nessun elenco membri.
+export const leagueMembers: Record<string, LeagueMember[]> = {};
 
 export interface ExploreLeague {
   id: string;
@@ -84,17 +51,17 @@ export const exploreLeagues: ExploreLeague[] = [
 export const crestPatterns = ['star', 'stripes', 'band', 'leaf', 'diamond', 'arrow', 'compass', 'quarters'] as const;
 export type CrestPattern = (typeof crestPatterns)[number];
 
-// DATI DEMO TEMPORANEI (vedi nota sopra su `leagues`).
+// Utente nuovo: nessun nome/username ancora impostato, nessuna statistica maturata.
 export const currentUser = {
-  name: 'Marco Rossi' as string | null,
-  username: 'marcobianchi_87' as string | null,
-  userNumber: 312 as number | null,
-  leaguePoints: 1240,
-  totalPoints: 3412,
-  accuracy: 68,
-  matchesPredicted: 760,
-  exactResults: 183,
-  correctOutcomes: 437,
+  name: null as string | null,
+  username: null as string | null,
+  userNumber: null as number | null,
+  leaguePoints: 0,
+  totalPoints: 0,
+  accuracy: 0,
+  matchesPredicted: 0,
+  exactResults: 0,
+  correctOutcomes: 0,
   crestPattern: 'star' as CrestPattern,
 };
 
@@ -116,7 +83,7 @@ export interface RealMatch {
   away: string;
   homeScore: number | null;
   awayScore: number | null;
-  /** DATO DEMO TEMPORANEO: pronostico finto dell'utente, per testare la UI "fatto/da fare". */
+  /** Il pronostico dell'utente per questa partita, se già inserito. */
   myPrediction?: string;
 }
 
@@ -129,7 +96,7 @@ export interface SerieARound {
   /** Solo per 'played-unverified': quante partite mancano rispetto alle 10 di una giornata regolare. */
   missingMatches?: number;
   matches: RealMatch[];
-  /** DATO DEMO TEMPORANEO: riepilogo fantasy-pronostico per la giornata (solo rounds 'played'). */
+  /** Riepilogo punteggio dell'utente per la giornata (valorizzato solo dopo che ha pronosticato). */
   fantasyDemo?: { points: number; average: number; diff: number; progress: number };
   /**
    * Placeholder statico (non calcolato) per "chiude tra"/countdown, in attesa del
@@ -145,13 +112,13 @@ export interface SeasonalPrediction {
   points: number | null;
 }
 
-/** DATI DEMO TEMPORANEI (vedi nota sopra su `leagues`): pronostici stagionali dell'utente, bloccati fino a metà campionato. */
+/** Pronostici stagionali dell'utente: non ancora scelti finché non chiude il mercato estivo. */
 export const seasonalPredictions: SeasonalPrediction[] = [
-  { label: 'Vincitore Serie A', value: 'Inter', points: 50 },
-  { label: 'Capocannoniere', value: 'Lautaro Martínez', points: 50 },
+  { label: 'Vincitore Serie A', value: null, points: null },
+  { label: 'Capocannoniere', value: null, points: null },
 ];
 
-/** DATO DEMO TEMPORANEO: 3=esatto, 1=solo esito corretto, 0=sbagliato. */
+/** Punteggio da regolamento: 3=risultato esatto, 1=solo esito corretto, 0=pronostico sbagliato. */
 export function fantasyPointsForMatch(m: RealMatch): number | null {
   if (!m.myPrediction || m.homeScore === null || m.awayScore === null) return null;
   const [ph, pa] = m.myPrediction.split('-').map(Number);
@@ -200,54 +167,51 @@ export const serieARounds: SerieARound[] = [
     number: 3,
     dateRangeLabel: '4–7 settembre 2026',
     status: 'played',
-    fantasyDemo: { points: 61, average: 60, diff: 1, progress: 52 },
     matches: [
-      { home: 'Genoa', away: 'Como', homeScore: 1, awayScore: 4, myPrediction: '1-4' },
-      { home: 'Fiorentina', away: 'Torino', homeScore: 1, awayScore: 2, myPrediction: '0-1' },
-      { home: 'Inter', away: 'Napoli', homeScore: 3, awayScore: 2, myPrediction: '2-1' },
-      { home: 'Roma', away: 'Atalanta', homeScore: 2, awayScore: 1, myPrediction: '1-1' },
-      { home: 'Frosinone', away: 'Venezia', homeScore: 3, awayScore: 2, myPrediction: '3-2' },
-      { home: 'Juventus', away: 'Milan', homeScore: 1, awayScore: 1, myPrediction: '2-0' },
-      { home: 'Parma', away: 'Monza', homeScore: 1, awayScore: 1, myPrediction: '1-1' },
-      { home: 'Bologna', away: 'Sassuolo', homeScore: 2, awayScore: 2, myPrediction: '1-0' },
-      { home: 'Cagliari', away: 'Lecce', homeScore: 1, awayScore: 0, myPrediction: '1-0' },
-      { home: 'Udinese', away: 'Lazio', homeScore: 1, awayScore: 2, myPrediction: '0-2' },
+      { home: 'Genoa', away: 'Como', homeScore: 1, awayScore: 4 },
+      { home: 'Fiorentina', away: 'Torino', homeScore: 1, awayScore: 2 },
+      { home: 'Inter', away: 'Napoli', homeScore: 3, awayScore: 2 },
+      { home: 'Roma', away: 'Atalanta', homeScore: 2, awayScore: 1 },
+      { home: 'Frosinone', away: 'Venezia', homeScore: 3, awayScore: 2 },
+      { home: 'Juventus', away: 'Milan', homeScore: 1, awayScore: 1 },
+      { home: 'Parma', away: 'Monza', homeScore: 1, awayScore: 1 },
+      { home: 'Bologna', away: 'Sassuolo', homeScore: 2, awayScore: 2 },
+      { home: 'Cagliari', away: 'Lecce', homeScore: 1, awayScore: 0 },
+      { home: 'Udinese', away: 'Lazio', homeScore: 1, awayScore: 2 },
     ],
   },
   {
     number: 4,
     dateRangeLabel: '11–14 settembre 2026',
     status: 'played',
-    fantasyDemo: { points: 72, average: 58, diff: 14, progress: 62 },
     matches: [
-      { home: 'Venezia', away: 'Fiorentina', homeScore: 2, awayScore: 4, myPrediction: '1-3' },
-      { home: 'Genoa', away: 'Frosinone', homeScore: 1, awayScore: 1, myPrediction: '1-1' },
-      { home: 'Lazio', away: 'Milan', homeScore: 2, awayScore: 2, myPrediction: '2-2' },
-      { home: 'Atalanta', away: 'Cagliari', homeScore: 1, awayScore: 2, myPrediction: '2-1' },
-      { home: 'Napoli', away: 'Bologna', homeScore: 1, awayScore: 0, myPrediction: '1-0' },
-      { home: 'Sassuolo', away: 'Juventus', homeScore: 3, awayScore: 2, myPrediction: '1-2' },
-      { home: 'Lecce', away: 'Monza', homeScore: 3, awayScore: 2, myPrediction: '3-2' },
-      { home: 'Torino', away: 'Roma', homeScore: 0, awayScore: 2, myPrediction: '0-2' },
-      { home: 'Inter', away: 'Udinese', homeScore: 5, awayScore: 3, myPrediction: '2-1' },
-      { home: 'Como', away: 'Parma', homeScore: 2, awayScore: 1, myPrediction: '2-1' },
+      { home: 'Venezia', away: 'Fiorentina', homeScore: 2, awayScore: 4 },
+      { home: 'Genoa', away: 'Frosinone', homeScore: 1, awayScore: 1 },
+      { home: 'Lazio', away: 'Milan', homeScore: 2, awayScore: 2 },
+      { home: 'Atalanta', away: 'Cagliari', homeScore: 1, awayScore: 2 },
+      { home: 'Napoli', away: 'Bologna', homeScore: 1, awayScore: 0 },
+      { home: 'Sassuolo', away: 'Juventus', homeScore: 3, awayScore: 2 },
+      { home: 'Lecce', away: 'Monza', homeScore: 3, awayScore: 2 },
+      { home: 'Torino', away: 'Roma', homeScore: 0, awayScore: 2 },
+      { home: 'Inter', away: 'Udinese', homeScore: 5, awayScore: 3 },
+      { home: 'Como', away: 'Parma', homeScore: 2, awayScore: 1 },
     ],
   },
   {
     number: 5,
     dateRangeLabel: '18–20 settembre 2026',
     status: 'played',
-    fantasyDemo: { points: 86, average: 61, diff: 25, progress: 72 },
     matches: [
-      { home: 'Monza', away: 'Sassuolo', homeScore: 2, awayScore: 1, myPrediction: '2-1' },
-      { home: 'Bologna', away: 'Torino', homeScore: 1, awayScore: 1, myPrediction: '1-1' },
-      { home: 'Udinese', away: 'Cagliari', homeScore: 0, awayScore: 1, myPrediction: '1-2' },
-      { home: 'Roma', away: 'Inter', homeScore: 2, awayScore: 2, myPrediction: '1-0' },
-      { home: 'Venezia', away: 'Lazio', homeScore: 0, awayScore: 2, myPrediction: '0-2' },
-      { home: 'Fiorentina', away: 'Napoli', homeScore: 1, awayScore: 1, myPrediction: '2-2' },
-      { home: 'Frosinone', away: 'Como', homeScore: 2, awayScore: 0, myPrediction: '1-0' },
-      { home: 'Parma', away: 'Genoa', homeScore: 2, awayScore: 1, myPrediction: '0-1' },
-      { home: 'Juventus', away: 'Atalanta', homeScore: 2, awayScore: 0, myPrediction: '2-0' },
-      { home: 'Milan', away: 'Lecce', homeScore: 3, awayScore: 0, myPrediction: '2-0' },
+      { home: 'Monza', away: 'Sassuolo', homeScore: 2, awayScore: 1 },
+      { home: 'Bologna', away: 'Torino', homeScore: 1, awayScore: 1 },
+      { home: 'Udinese', away: 'Cagliari', homeScore: 0, awayScore: 1 },
+      { home: 'Roma', away: 'Inter', homeScore: 2, awayScore: 2 },
+      { home: 'Venezia', away: 'Lazio', homeScore: 0, awayScore: 2 },
+      { home: 'Fiorentina', away: 'Napoli', homeScore: 1, awayScore: 1 },
+      { home: 'Frosinone', away: 'Como', homeScore: 2, awayScore: 0 },
+      { home: 'Parma', away: 'Genoa', homeScore: 2, awayScore: 1 },
+      { home: 'Juventus', away: 'Atalanta', homeScore: 2, awayScore: 0 },
+      { home: 'Milan', away: 'Lecce', homeScore: 3, awayScore: 0 },
     ],
   },
   {
@@ -257,9 +221,9 @@ export const serieARounds: SerieARound[] = [
     closesLabel: 'VEN 20:45',
     countdownLabel: '04:12:33',
     matches: [
-      { home: 'Genoa', away: 'Fiorentina', homeScore: null, awayScore: null, myPrediction: '2-1' },
-      { home: 'Inter', away: 'Parma', homeScore: null, awayScore: null, myPrediction: '3-0' },
-      { home: 'Napoli', away: 'Frosinone', homeScore: null, awayScore: null, myPrediction: '2-0' },
+      { home: 'Genoa', away: 'Fiorentina', homeScore: null, awayScore: null },
+      { home: 'Inter', away: 'Parma', homeScore: null, awayScore: null },
+      { home: 'Napoli', away: 'Frosinone', homeScore: null, awayScore: null },
       { home: 'Como', away: 'Roma', homeScore: null, awayScore: null },
       { home: 'Lazio', away: 'Monza', homeScore: null, awayScore: null },
       { home: 'Lecce', away: 'Bologna', homeScore: null, awayScore: null },
@@ -304,5 +268,5 @@ export const generalLeaderboardRest: LeaderboardEntry[] = [
   { position: 12, name: 'Paolo D.', points: 764, delta: 0, exact: 33, outcomes: 98, initials: 'PD' },
 ];
 
-// DATO DEMO TEMPORANEO (vedi nota sopra su `leagues`).
-export const yourGeneralPosition = { position: 1284 as number | null, delta: 37 as number | null, points: 712, exact: 28, outcomes: 91 };
+// Nessuna posizione ancora: l'utente non ha pronosticato nulla.
+export const yourGeneralPosition = { position: null as number | null, delta: null as number | null, points: 0, exact: 0, outcomes: 0 };

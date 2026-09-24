@@ -1,0 +1,14 @@
+/* Design tokens — direzione "Notturna", tema chiaro (v1) */
+:root {
+  --color-bg: #EEF2FA;
+  --color-surface: #FFFFFF;
+  --color-border: #D7DEEE;
+  --color-text-primary: #101A33;
+  --color-text-secondary: #5B6785;
+  --color-primary: #101A33;
+  --color-accent: #C6FF3D;
+
+  --font-heading: "Archivo Black", Helvetica, Arial, sans-serif;
+  --font-body: "Archivo", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}

@@ -1,5 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { BottomNav } from './components/BottomNav';
+import { Login } from './pages/Login';
+import { Onboarding } from './pages/Onboarding';
 import { Home } from './pages/Home';
 import { Pronostici } from './pages/Pronostici';
 import { Classifica } from './pages/Classifica';
@@ -11,9 +14,15 @@ import { LegheEsplora } from './pages/menu/LegheEsplora';
 import { LegaDettaglio } from './pages/menu/LegaDettaglio';
 import { Regolamento } from './pages/menu/Regolamento';
 
-function App() {
+function Gate() {
+  const { loading, session, profile } = useAuth();
+
+  if (loading) return <div className="page" />;
+  if (!session) return <Login />;
+  if (!profile?.username) return <Onboarding />;
+
   return (
-    <BrowserRouter>
+    <>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/pronostici" element={<Pronostici />} />
@@ -27,6 +36,16 @@ function App() {
         <Route path="/menu/regolamento" element={<Regolamento />} />
       </Routes>
       <BottomNav />
+    </>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

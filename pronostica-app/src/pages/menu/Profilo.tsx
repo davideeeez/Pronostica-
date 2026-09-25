@@ -1,16 +1,37 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { ShieldCrest, EditIcon, ChevronRightThinIcon, CameraIcon } from '../../components/icons';
+import { useAuth } from '../../contexts/AuthContext';
 import { currentUser, crestPatterns, type CrestPattern } from '../../data/mock';
 
 export function Profilo() {
+  const navigate = useNavigate();
+  const { profile, signOut, saveProfile } = useAuth();
+  const crest = profile?.crest_pattern ?? 'star';
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [crest, setCrest] = useState<CrestPattern>(currentUser.crestPattern);
   const [draftCrest, setDraftCrest] = useState<CrestPattern>(crest);
+  const [savingCrest, setSavingCrest] = useState(false);
 
   function openGallery() {
     setDraftCrest(crest);
     setGalleryOpen(true);
+  }
+
+  async function confirmCrest() {
+    if (!profile?.username) return;
+    setSavingCrest(true);
+    try {
+      await saveProfile({ username: profile.username, crest_pattern: draftCrest });
+      setGalleryOpen(false);
+    } finally {
+      setSavingCrest(false);
+    }
+  }
+
+  async function handleLogout() {
+    await signOut();
+    navigate('/');
   }
 
   return (
@@ -25,18 +46,7 @@ export function Profilo() {
               <EditIcon color="var(--color-text-primary)" size={15} />
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ fontFamily: 'var(--font-heading)', fontSize: 19, color: currentUser.username ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}>
-              {currentUser.username ?? 'Imposta un nome utente'}
-            </span>
-            <EditIcon />
-          </div>
-          {currentUser.userNumber !== null && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 99, padding: '6px 11px' }}>
-              <ShieldCrest size={12} pattern={crest} />
-              <span style={{ font: '600 10px/1 var(--font-mono)', letterSpacing: '.09em' }}>UTENTE #{currentUser.userNumber}</span>
-            </div>
-          )}
+          <span style={{ fontFamily: 'var(--font-heading)', fontSize: 19 }}>{profile?.username}</span>
           <span style={{ font: '600 9px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>
             TOCCA LO STEMMA PER CAMBIARLO
           </span>
@@ -73,7 +83,6 @@ export function Profilo() {
                 <span style={{ font: '600 11px/1 var(--font-body)', color: 'var(--color-text-secondary)', borderRadius: 99, padding: '8px 12px', cursor: 'not-allowed' }} title="In arrivo in una fase successiva">Scuro</span>
               </div>
             </div>
-            <MenuRow label="Modifica email e password" />
             <MenuRow label="Elimina account" />
           </div>
         </div>
@@ -82,7 +91,7 @@ export function Profilo() {
           <div style={{ height: 1, background: 'var(--color-border)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44 }}>
             <span style={{ font: '400 10px/1 var(--font-mono)', letterSpacing: '.08em', color: 'var(--color-text-secondary)' }}>VERSIONE 1.4.2 (218)</span>
-            <span style={{ font: '600 12px/1 var(--font-body)', letterSpacing: '.02em', color: '#C0304A', cursor: 'pointer' }}>Esci</span>
+            <span onClick={handleLogout} style={{ font: '600 12px/1 var(--font-body)', letterSpacing: '.02em', color: '#C0304A', cursor: 'pointer' }}>Esci</span>
           </div>
         </div>
       </div>
@@ -132,10 +141,10 @@ export function Profilo() {
                 Annulla
               </span>
               <span
-                onClick={() => { setCrest(draftCrest); setGalleryOpen(false); }}
-                style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-heading)', fontSize: 13.5, background: 'var(--color-accent)', borderRadius: 14, padding: '15px 18px', cursor: 'pointer' }}
+                onClick={confirmCrest}
+                style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-heading)', fontSize: 13.5, background: 'var(--color-accent)', borderRadius: 14, padding: '15px 18px', cursor: savingCrest ? 'default' : 'pointer', opacity: savingCrest ? 0.6 : 1 }}
               >
-                Conferma stemma
+                {savingCrest ? 'Salvataggio…' : 'Conferma stemma'}
               </span>
             </div>
           </div>

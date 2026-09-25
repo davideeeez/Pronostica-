@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, ShieldCrest } from '../components/icons';
+import { useAuth } from '../contexts/AuthContext';
 import { serieARounds, currentRoundNumber, lastPlayedRound, leagues, currentUser } from '../data/mock';
 
 export function Home() {
+  const { profile } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
   const done = currentRound.matches.filter((m) => m.myPrediction).length;
@@ -59,13 +61,13 @@ export function Home() {
         {hasLeagues ? (
           <Link to="/menu/profilo" className="card" style={{ padding: '15px 16px 16px', display: 'flex', flexDirection: 'column', gap: 13, textDecoration: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <ShieldCrest size={38} pattern={currentUser.crestPattern} />
+              <ShieldCrest size={38} pattern={profile?.crest_pattern ?? 'star'} />
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <span style={{ fontFamily: 'var(--font-heading)', fontSize: 17, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {currentUser.name}
+                  {profile?.username}
                 </span>
                 <span style={{ font: '600 9.5px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>
-                  UTENTE #{currentUser.userNumber} · VEDI PROFILO
+                  VEDI PROFILO
                 </span>
               </div>
               <ChevronRightIcon />

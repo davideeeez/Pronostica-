@@ -1,13 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GoogleIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
 
 export function Login() {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, authError, clearAuthError } = useAuth();
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (authError) setPending(false);
+  }, [authError]);
 
   async function handleClick() {
     setPending(true);
+    clearAuthError();
     try {
       await signInWithGoogle();
     } catch {
@@ -25,6 +30,12 @@ export function Login() {
             Sfida i tuoi amici sui pronostici di Serie A. Accedi per iniziare.
           </p>
         </div>
+        {authError && (
+          <div style={{ width: '100%', background: 'rgba(192,48,74,.1)', border: '1px solid rgba(192,48,74,.35)', borderRadius: 12, padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ font: '600 10px/1 var(--font-mono)', letterSpacing: '.08em', color: '#C0304A' }}>ACCESSO NON RIUSCITO</span>
+            <span style={{ fontSize: 12.5, lineHeight: 1.4, color: 'var(--color-text-primary)' }}>{authError}</span>
+          </div>
+        )}
         <button
           onClick={handleClick}
           disabled={pending}

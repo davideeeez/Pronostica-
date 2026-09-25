@@ -15,6 +15,8 @@ interface AuthContextValue {
   configured: boolean;
   session: Session | null;
   profile: Profile | null;
+  authError: string | null;
+  clearAuthError: () => void;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   saveProfile: (fields: { username: string; crest_pattern: CrestPattern }) => Promise<void>;
@@ -22,14 +24,34 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Supabase/Google rimandano un login fallito (es. consent screen in Testing,
+ * provider non abilitato) come parametri `error`/`error_description` in query
+ * string o hash: senza leggerli l'utente vede solo un rimbalzo silenzioso al login.
+ */
+function readOAuthErrorFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const description = params.get('error_description') || hashParams.get('error_description');
+  const code = params.get('error') || hashParams.get('error');
+  if (!description && !code) return null;
+  return description ? decodeURIComponent(description.replace(/\+/g, ' ')) : code;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  function clearAuthError() {
+    setAuthError(null);
+  }
 
   async function loadProfile(userId: string) {
     if (!supabase) return;
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    if (error) setAuthError(error.message);
     setProfile(data);
   }
 
@@ -37,6 +59,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) {
       setLoading(false);
       return;
+    }
+
+    const urlError = readOAuthErrorFromUrl();
+    if (urlError) {
+      setAuthError(urlError);
+      window.history.replaceState(null, '', window.location.pathname);
     }
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -59,10 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signInWithGoogle() {
     if (!supabase) return;
-    await supabase.auth.signInWithOAuth({
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
     });
+    if (error) setAuthError(error.message);
   }
 
   async function signOut() {
@@ -82,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ loading, configured: supabaseConfigured, session, profile, signInWithGoogle, signOut, saveProfile }}>
+    <AuthContext.Provider value={{ loading, configured: supabaseConfigured, session, profile, authError, clearAuthError, signInWithGoogle, signOut, saveProfile }}>
       {children}
     </AuthContext.Provider>
   );

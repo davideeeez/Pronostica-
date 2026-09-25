@@ -12,9 +12,10 @@ const podiumColors: Record<number, { bg: string; ring: string }> = {
 
 export function Classifica() {
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
-  const first = generalLeaderboardPodium.find((p) => p.position === 1)!;
-  const second = generalLeaderboardPodium.find((p) => p.position === 2)!;
-  const third = generalLeaderboardPodium.find((p) => p.position === 3)!;
+  const hasUsers = generalLeaderboardPodium.length > 0;
+  const first = generalLeaderboardPodium.find((p) => p.position === 1);
+  const second = generalLeaderboardPodium.find((p) => p.position === 2);
+  const third = generalLeaderboardPodium.find((p) => p.position === 3);
 
   return (
     <div className="page">
@@ -24,7 +25,7 @@ export function Classifica() {
         <div className="card-dark" style={{ padding: '14px 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
             <span style={{ font: '600 9.5px/1.5 var(--font-mono)', letterSpacing: '.12em' }}>
-              DOPO LA GIORNATA 12
+              CLASSIFICA GENERALE
               <br />
               {leagues.find((l) => l.isGeneral)!.members.toLocaleString('it-IT')} UTENTI
             </span>
@@ -34,13 +35,21 @@ export function Classifica() {
             </Link>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr', alignItems: 'end', gap: 7 }}>
-            <PodiumSpot entry={second} colors={podiumColors[2]} size={42} nameColor="#fff" />
-            <PodiumSpot entry={first} colors={podiumColors[1]} size={60} nameColor="#fff" crown />
-            <PodiumSpot entry={third} colors={podiumColors[3]} size={42} nameColor="#fff" />
-          </div>
+          {hasUsers && first && second && third ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr', alignItems: 'end', gap: 7 }}>
+              <PodiumSpot entry={second} colors={podiumColors[2]} size={42} nameColor="#fff" />
+              <PodiumSpot entry={first} colors={podiumColors[1]} size={60} nameColor="#fff" crown />
+              <PodiumSpot entry={third} colors={podiumColors[3]} size={42} nameColor="#fff" />
+            </div>
+          ) : (
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: '#A9B4CC' }}>
+              Nessun iscritto ancora. Sarai tra i primi a comparire qui.
+            </p>
+          )}
         </div>
 
+        {!hasUsers ? null : (
+          <>
         <div style={{ display: 'grid', gridTemplateColumns: '40px minmax(0,1fr) 46px', gap: 10, padding: '6px 14px 0', font: '600 9px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>
           <span>POS</span>
           <span>UTENTE · ESATTI / ESITI</span>
@@ -79,6 +88,8 @@ export function Classifica() {
             </div>
           ))}
         </div>
+          </>
+        )}
       </div>
 
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 79, background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', padding: '10px 18px 12px' }}>

@@ -19,7 +19,7 @@ export interface League {
  * posizione/punteggio personale finché non ha giocato).
  */
 export const leagues: League[] = [
-  { id: 'gen', name: 'Classifica generale', members: 48312, points: null, position: null, delta: null, isGeneral: true, isPrivate: false },
+  { id: 'gen', name: 'Classifica generale', members: 0, points: null, position: null, delta: null, isGeneral: true, isPrivate: false },
 ];
 
 export interface LeagueMember {
@@ -250,23 +250,15 @@ export interface LeaderboardEntry {
   initials: string;
 }
 
-export const generalLeaderboardPodium: LeaderboardEntry[] = [
-  { position: 1, name: 'Marco B.', points: 847, delta: 2, exact: 45, outcomes: 99, initials: 'MB' },
-  { position: 2, name: 'Giulia R.', points: 812, delta: 1, exact: 43, outcomes: 97, initials: 'GR' },
-  { position: 3, name: 'Davide C.', points: 805, delta: -1, exact: 42, outcomes: 95, initials: 'DC' },
-];
+/**
+ * Classifica generale: nessun utente ancora iscritto. Man mano che le persone
+ * si iscriveranno, questa lista si popolerà in ordine di iscrizione con 0 punti,
+ * finché non giocheranno la prima giornata (poi subentra il punteggio da
+ * regolamento). Richiede il backend (Fase 2+): per ora resta vuota.
+ */
+export const generalLeaderboardPodium: LeaderboardEntry[] = [];
 
-export const generalLeaderboardRest: LeaderboardEntry[] = [
-  { position: 4, name: 'Sara L.', points: 799, delta: 2, exact: 41, outcomes: 96, initials: 'SL' },
-  { position: 5, name: 'Andrea P.', points: 794, delta: -1, exact: 39, outcomes: 98, initials: 'AP' },
-  { position: 6, name: 'Federico M.', points: 790, delta: 5, exact: 38, outcomes: 99, initials: 'FM' },
-  { position: 7, name: 'Chiara V.', points: 786, delta: 0, exact: 40, outcomes: 92, initials: 'CV' },
-  { position: 8, name: 'Luca T.', points: 781, delta: -3, exact: 37, outcomes: 97, initials: 'LT' },
-  { position: 9, name: 'Elena F.', points: 777, delta: 1, exact: 36, outcomes: 98, initials: 'EF' },
-  { position: 10, name: 'Nicolò S.', points: 773, delta: -2, exact: 35, outcomes: 99, initials: 'NS' },
-  { position: 11, name: 'Martina G.', points: 768, delta: 4, exact: 34, outcomes: 97, initials: 'MG' },
-  { position: 12, name: 'Paolo D.', points: 764, delta: 0, exact: 33, outcomes: 98, initials: 'PD' },
-];
+export const generalLeaderboardRest: LeaderboardEntry[] = [];
 
 // Nessuna posizione ancora: l'utente non ha pronosticato nulla.
 export const yourGeneralPosition = { position: null as number | null, delta: null as number | null, points: 0, exact: 0, outcomes: 0 };

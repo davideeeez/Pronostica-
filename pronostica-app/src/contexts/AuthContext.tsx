@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, supabaseConfigured } from '../lib/supabaseClient';
 import type { CrestPattern } from '../data/mock';
 
 export interface Profile {
@@ -12,6 +12,7 @@ export interface Profile {
 
 interface AuthContextValue {
   loading: boolean;
+  configured: boolean;
   session: Session | null;
   profile: Profile | null;
   signInWithGoogle: () => Promise<void>;
@@ -27,11 +28,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
 
   async function loadProfile(userId: string) {
+    if (!supabase) return;
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     setProfile(data);
   }
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       if (session) await loadProfile(session.user.id);
@@ -51,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signInWithGoogle() {
+    if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -58,11 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    if (!supabase) return;
     await supabase.auth.signOut();
   }
 
   async function saveProfile(fields: { username: string; crest_pattern: CrestPattern }) {
-    if (!session) throw new Error('Nessun utente loggato.');
+    if (!supabase || !session) throw new Error('Nessun utente loggato.');
     const { data, error } = await supabase
       .from('profiles')
       .upsert({ id: session.user.id, ...fields })
@@ -73,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ loading, session, profile, signInWithGoogle, signOut, saveProfile }}>
+    <AuthContext.Provider value={{ loading, configured: supabaseConfigured, session, profile, signInWithGoogle, signOut, saveProfile }}>
       {children}
     </AuthContext.Provider>
   );

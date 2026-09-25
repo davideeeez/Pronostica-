@@ -14,9 +14,25 @@ import { LegheEsplora } from './pages/menu/LegheEsplora';
 import { LegaDettaglio } from './pages/menu/LegaDettaglio';
 import { Regolamento } from './pages/menu/Regolamento';
 
-function Gate() {
-  const { loading, session, profile } = useAuth();
+function ConfigError() {
+  return (
+    <div className="page" style={{ justifyContent: 'center', padding: '0 28px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'center' }}>
+        <span style={{ fontFamily: 'var(--font-heading)', fontSize: 20 }}>Configurazione mancante</span>
+        <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: 'var(--color-text-secondary)' }}>
+          Mancano le variabili <code>VITE_SUPABASE_URL</code> e/o <code>VITE_SUPABASE_ANON_KEY</code>.
+          Su Vercel: Settings → Environment Variables, poi Deployments → Redeploy.
+          In locale: copia <code>.env.example</code> in <code>.env.local</code> e compilalo.
+        </p>
+      </div>
+    </div>
+  );
+}
 
+function Gate() {
+  const { loading, configured, session, profile } = useAuth();
+
+  if (!configured) return <ConfigError />;
   if (loading) return <div className="page" />;
   if (!session) return <Login />;
   if (!profile?.username) return <Onboarding />;

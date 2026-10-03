@@ -38,6 +38,14 @@ function readOAuthErrorFromUrl(): string | null {
   return description ? decodeURIComponent(description.replace(/\+/g, ' ')) : code;
 }
 
+function readTokensFromUrlHash(): { access_token: string; refresh_token: string } | null {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const access_token = hashParams.get('access_token');
+  const refresh_token = hashParams.get('refresh_token');
+  if (!access_token || !refresh_token) return null;
+  return { access_token, refresh_token };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
@@ -67,11 +75,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    (async () => {
+      /**
+       * Non ci affidiamo al rilevamento automatico di supabase-js (detectSessionInUrl):
+       * in produzione, dietro Service Worker/PWA, la chiamata di verifica che dovrebbe
+       * scattare da sola non parte mai (confermato da Network: nessuna richiesta a
+       * /auth/v1/user dopo il redirect di Google). Leggiamo il token dall'hash a mano.
+       */
+      const tokens = readTokensFromUrlHash();
+      if (tokens) {
+        const { error } = await supabase.auth.setSession(tokens);
+        if (error) setAuthError(error.message);
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       if (session) await loadProfile(session.user.id);
       setLoading(false);
-    });
+    })();
 
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);

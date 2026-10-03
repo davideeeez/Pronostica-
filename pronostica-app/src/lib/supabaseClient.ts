@@ -10,4 +10,11 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
  */
 export const supabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
-export const supabase = supabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
+/**
+ * detectSessionInUrl disattivato: leggiamo noi il token dall'hash in AuthContext
+ * (il rilevamento automatico non scatta in modo affidabile dietro il Service Worker
+ * della PWA in produzione).
+ */
+export const supabase = supabaseConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey, { auth: { detectSessionInUrl: false } })
+  : null;

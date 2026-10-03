@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { BottomNav } from './components/BottomNav';
 import { Login } from './pages/Login';
 import { Onboarding } from './pages/Onboarding';
+import { Privacy } from './pages/Privacy';
 import { Home } from './pages/Home';
 import { Pronostici } from './pages/Pronostici';
 import { Classifica } from './pages/Classifica';
@@ -60,7 +61,10 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Gate />
+        <Routes>
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/*" element={<Gate />} />
+        </Routes>
       </AuthProvider>
     </BrowserRouter>
   );

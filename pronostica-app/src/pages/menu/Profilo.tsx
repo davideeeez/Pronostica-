@@ -1,17 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { ShieldCrest, EditIcon, ChevronRightThinIcon, CameraIcon } from '../../components/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { currentUser, crestPatterns, type CrestPattern } from '../../data/mock';
+import { fetchLeaderboard, type LeaderboardRow } from '../../lib/leaderboard';
+import { fetchMyMatchesScored } from '../../lib/predictions';
+import { crestPatterns, type CrestPattern } from '../../data/mock';
 
 export function Profilo() {
   const navigate = useNavigate();
-  const { profile, signOut, saveProfile } = useAuth();
+  const { profile, session, signOut, saveProfile } = useAuth();
   const crest = profile?.crest_pattern ?? 'star';
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [draftCrest, setDraftCrest] = useState<CrestPattern>(crest);
   const [savingCrest, setSavingCrest] = useState(false);
+  const [myRow, setMyRow] = useState<LeaderboardRow | null>(null);
+  const [matchesScored, setMatchesScored] = useState(0);
+
+  useEffect(() => {
+    if (!session) return;
+    fetchLeaderboard().then((rows) => setMyRow(rows.find((r) => r.userId === session.user.id) ?? null));
+    fetchMyMatchesScored(session.user.id).then(setMatchesScored);
+  }, [session]);
+
+  const totalPoints = myRow?.totalPoints ?? 0;
+  const exactResults = myRow?.exactResults ?? 0;
+  const correctOutcomes = myRow?.correctOutcomes ?? 0;
+  const accuracy = matchesScored > 0 ? Math.round(((exactResults + correctOutcomes) / matchesScored) * 100) : 0;
 
   function openGallery() {
     setDraftCrest(crest);
@@ -57,19 +72,19 @@ export function Profilo() {
           <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: 8 }}>
             <div className="card-dark" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span style={{ font: '600 9px/1 var(--font-mono)', letterSpacing: '.1em', color: '#A9B4CC' }}>PUNTI TOTALI</span>
-              <span style={{ fontFamily: 'var(--font-heading)', fontSize: 30, color: 'var(--color-accent)' }}>{currentUser.totalPoints.toLocaleString('it-IT')}</span>
+              <span style={{ fontFamily: 'var(--font-heading)', fontSize: 30, color: 'var(--color-accent)' }}>{totalPoints.toLocaleString('it-IT')}</span>
               <span style={{ fontSize: 11, color: '#A9B4CC' }}>storico completo</span>
             </div>
             <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span className="stat-tile__label" style={{ fontSize: 9 }}>PRECISIONE</span>
-              <span style={{ fontFamily: 'var(--font-heading)', fontSize: 30 }}>{currentUser.accuracy}%</span>
+              <span style={{ fontFamily: 'var(--font-heading)', fontSize: 30 }}>{accuracy}%</span>
               <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>esiti indovinati</span>
             </div>
           </div>
           <div className="card" style={{ padding: '2px 16px', display: 'flex', flexDirection: 'column' }}>
-            <StatRow label="Hai pronosticato" value={`${currentUser.matchesPredicted} partite`} first />
-            <StatRow label="Risultati esatti totali" value={String(currentUser.exactResults)} />
-            <StatRow label="Esiti corretti totali" value={String(currentUser.correctOutcomes)} />
+            <StatRow label="Hai pronosticato" value={`${matchesScored} partite`} first />
+            <StatRow label="Risultati esatti totali" value={String(exactResults)} />
+            <StatRow label="Esiti corretti totali" value={String(correctOutcomes)} />
           </div>
         </div>
 

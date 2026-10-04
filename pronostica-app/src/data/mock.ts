@@ -51,20 +51,6 @@ export const exploreLeagues: ExploreLeague[] = [
 export const crestPatterns = ['star', 'stripes', 'band', 'leaf', 'diamond', 'arrow', 'compass', 'quarters'] as const;
 export type CrestPattern = (typeof crestPatterns)[number];
 
-// Utente nuovo: nessun nome/username ancora impostato, nessuna statistica maturata.
-export const currentUser = {
-  name: null as string | null,
-  username: null as string | null,
-  userNumber: null as number | null,
-  leaguePoints: 0,
-  totalPoints: 0,
-  accuracy: 0,
-  matchesPredicted: 0,
-  exactResults: 0,
-  correctOutcomes: 0,
-  crestPattern: 'star' as CrestPattern,
-};
-
 /**
  * Calendario reale Serie A 2026/27 (girone unico, 38 giornate, iniziato il
  * 23 agosto 2026), verificato dall'utente giornata per giornata.
@@ -233,26 +219,3 @@ export const currentRoundNumber =
   serieARounds.find((r) => r.status === 'upcoming')?.number ?? serieARounds[serieARounds.length - 1].number;
 
 export const lastPlayedRound = [...serieARounds].reverse().find((r) => r.status === 'played') ?? null;
-
-export interface LeaderboardEntry {
-  position: number;
-  name: string;
-  points: number;
-  delta: number;
-  exact: number;
-  outcomes: number;
-  initials: string;
-}
-
-/**
- * Classifica generale: nessun utente ancora iscritto. Man mano che le persone
- * si iscriveranno, questa lista si popolerà in ordine di iscrizione con 0 punti,
- * finché non giocheranno la prima giornata (poi subentra il punteggio da
- * regolamento). Richiede il backend (Fase 2+): per ora resta vuota.
- */
-export const generalLeaderboardPodium: LeaderboardEntry[] = [];
-
-export const generalLeaderboardRest: LeaderboardEntry[] = [];
-
-// Nessuna posizione ancora: l'utente non ha pronosticato nulla.
-export const yourGeneralPosition = { position: null as number | null, delta: null as number | null, points: 0, exact: 0, outcomes: 0 };

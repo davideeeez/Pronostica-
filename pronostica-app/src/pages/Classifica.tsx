@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
-import { InfoCircleIcon } from '../components/icons';
-import { generalLeaderboardPodium, generalLeaderboardRest, yourGeneralPosition, leagues } from '../data/mock';
+import { InfoCircleIcon, ShieldCrest } from '../components/icons';
+import { useAuth } from '../contexts/AuthContext';
+import { fetchLeaderboard, type LeaderboardRow } from '../lib/leaderboard';
 
 const podiumColors: Record<number, { bg: string; ring: string }> = {
   1: { bg: '#E8B44A', ring: '#E8B44A' },
@@ -11,11 +12,23 @@ const podiumColors: Record<number, { bg: string; ring: string }> = {
 };
 
 export function Classifica() {
+  const { session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
-  const hasUsers = generalLeaderboardPodium.length > 0;
-  const first = generalLeaderboardPodium.find((p) => p.position === 1);
-  const second = generalLeaderboardPodium.find((p) => p.position === 2);
-  const third = generalLeaderboardPodium.find((p) => p.position === 3);
+  const [rows, setRows] = useState<LeaderboardRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchLeaderboard()
+      .then(setRows)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Errore sconosciuto.'));
+  }, []);
+
+  const loading = rows === null && !error;
+  const hasPoints = rows?.some((r) => r.totalPoints > 0) ?? false;
+  const first = hasPoints ? rows?.find((r) => r.rank === 1) : undefined;
+  const second = hasPoints ? rows?.find((r) => r.rank === 2) : undefined;
+  const third = hasPoints ? rows?.find((r) => r.rank === 3) : undefined;
+  const me = rows?.find((r) => r.userId === session?.user.id) ?? null;
 
   return (
     <div className="page">
@@ -27,7 +40,7 @@ export function Classifica() {
             <span style={{ font: '600 9.5px/1.5 var(--font-mono)', letterSpacing: '.12em' }}>
               CLASSIFICA GENERALE
               <br />
-              {leagues.find((l) => l.isGeneral)!.members.toLocaleString('it-IT')} UTENTI
+              {(rows?.length ?? 0).toLocaleString('it-IT')} UTENTI
             </span>
             <Link to="/menu/regolamento" style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 'none' }}>
               <InfoCircleIcon size={15} />
@@ -35,7 +48,15 @@ export function Classifica() {
             </Link>
           </div>
 
-          {hasUsers && first && second && third ? (
+          {loading ? (
+            <p style={{ margin: 0, fontSize: 13, color: '#A9B4CC' }}>Caricamento…</p>
+          ) : error ? (
+            <p style={{ margin: 0, fontSize: 13, color: '#F28B9D' }}>{error}</p>
+          ) : !rows || rows.length === 0 ? (
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: '#A9B4CC' }}>
+              Nessun iscritto ancora. Sarai tra i primi a comparire qui.
+            </p>
+          ) : hasPoints && first && second && third ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr', alignItems: 'end', gap: 7 }}>
               <PodiumSpot entry={second} colors={podiumColors[2]} size={42} nameColor="#fff" />
               <PodiumSpot entry={first} colors={podiumColors[1]} size={60} nameColor="#fff" crown />
@@ -43,51 +64,63 @@ export function Classifica() {
             </div>
           ) : (
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: '#A9B4CC' }}>
-              Nessun iscritto ancora. Sarai tra i primi a comparire qui.
+              Nessuno ha ancora punti: il podio comparirà dal primo risultato pronosticato. Per ora, ordine di iscrizione.
             </p>
           )}
         </div>
 
-        {!hasUsers ? null : (
+        {rows && rows.length > 0 && (
           <>
-        <div style={{ display: 'grid', gridTemplateColumns: '40px minmax(0,1fr) 46px', gap: 10, padding: '6px 14px 0', font: '600 9px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>
-          <span>POS</span>
-          <span>UTENTE · ESATTI / ESITI</span>
-          <span style={{ textAlign: 'right' }}>PUNTI</span>
-        </div>
-
-        <div className="card" style={{ padding: '4px 14px', display: 'flex', flexDirection: 'column' }}>
-          {generalLeaderboardRest.map((row, i) => (
             <div
-              key={row.position}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '40px minmax(0,1fr) 46px',
+                gridTemplateColumns: hasPoints ? '40px minmax(0,1fr) 46px' : 'minmax(0,1fr) 46px',
                 gap: 10,
-                alignItems: 'center',
-                padding: '11px 0',
-                borderTop: i === 0 ? 'none' : '1px solid var(--color-bg)',
+                padding: '6px 14px 0',
+                font: '600 9px/1 var(--font-mono)',
+                letterSpacing: '.1em',
+                color: 'var(--color-text-secondary)',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
-                <span style={{ fontFamily: 'var(--font-heading)', fontSize: 14 }}>{row.position}</span>
-                <span style={{ font: '600 9.5px/1 var(--font-mono)', color: row.delta > 0 ? '#1B7A46' : row.delta < 0 ? '#C0304A' : 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-                  {row.delta > 0 ? '▲' : row.delta < 0 ? '▼' : '—'} {Math.abs(row.delta)}
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</span>
-                <span style={{ font: '400 10px/1 var(--font-mono)', letterSpacing: '.06em', color: 'var(--color-text-secondary)' }}>
-                  {row.exact} ESATTI · {row.outcomes} ESITI
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                <span style={{ fontFamily: 'var(--font-heading)', fontSize: 14 }}>{row.points}</span>
-                <span style={{ font: '600 8px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>PT</span>
-              </div>
+              {hasPoints && <span>POS</span>}
+              <span>UTENTE · ESATTI / ESITI</span>
+              <span style={{ textAlign: 'right' }}>PUNTI</span>
             </div>
-          ))}
-        </div>
+
+            <div className="card" style={{ padding: '4px 14px', display: 'flex', flexDirection: 'column' }}>
+              {rows.map((row, i) => (
+                <div
+                  key={row.userId}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: hasPoints ? '40px minmax(0,1fr) 46px' : 'minmax(0,1fr) 46px',
+                    gap: 10,
+                    alignItems: 'center',
+                    padding: '11px 0',
+                    borderTop: i === 0 ? 'none' : '1px solid var(--color-bg)',
+                  }}
+                >
+                  {hasPoints && (
+                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: 14 }}>{row.rank}</span>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                    <ShieldCrest size={26} pattern={row.crestPattern} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {row.username}
+                      </span>
+                      <span style={{ font: '400 10px/1 var(--font-mono)', letterSpacing: '.06em', color: 'var(--color-text-secondary)' }}>
+                        {row.exactResults} ESATTI · {row.correctOutcomes} ESITI
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: 14 }}>{row.totalPoints}</span>
+                    <span style={{ font: '600 8px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>PT</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -97,20 +130,17 @@ export function Classifica() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ font: '600 8px/1 var(--font-mono)', letterSpacing: '.1em', opacity: 0.65 }}>POS</span>
             <span style={{ fontFamily: 'var(--font-heading)', fontSize: 16 }}>
-              {yourGeneralPosition.position !== null ? yourGeneralPosition.position.toLocaleString('it-IT') : '—'}
+              {me && hasPoints ? me.rank.toLocaleString('it-IT') : '—'}
             </span>
-            {yourGeneralPosition.delta !== null && (
-              <span style={{ font: '600 9.5px/1 var(--font-mono)', color: '#0E4527' }}>▲ {yourGeneralPosition.delta}</span>
-            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
             <span style={{ fontFamily: 'var(--font-heading)', fontSize: 13 }}>La tua posizione</span>
             <span style={{ font: '400 9.5px/1 var(--font-mono)', letterSpacing: '.04em' }}>
-              {yourGeneralPosition.exact} ESATTI · {yourGeneralPosition.outcomes} ESITI
+              {me ? `${me.exactResults} ESATTI · ${me.correctOutcomes} ESITI` : '— ESATTI · — ESITI'}
             </span>
           </div>
           <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15 }}>
-            {yourGeneralPosition.points} <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fontWeight: 600, letterSpacing: '.1em', opacity: 0.65 }}>PT</span>
+            {me?.totalPoints ?? 0} <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fontWeight: 600, letterSpacing: '.1em', opacity: 0.65 }}>PT</span>
           </span>
         </div>
       </div>
@@ -125,7 +155,7 @@ function PodiumSpot({
   nameColor,
   crown,
 }: {
-  entry: { position: number; name: string; points: number; initials: string };
+  entry: LeaderboardRow;
   colors: { bg: string; ring: string };
   size: number;
   nameColor: string;
@@ -133,24 +163,10 @@ function PodiumSpot({
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 3.2,
-          background: crown ? 'var(--color-accent)' : colors.bg,
-          border: `${crown ? 2.5 : 1.5}px solid ${colors.ring}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'var(--font-heading)',
-          fontSize: size / 3,
-          color: crown ? 'var(--color-text-primary)' : '#fff',
-        }}
-      >
-        {entry.initials}
-      </div>
-      <span style={{ fontFamily: 'var(--font-heading)', fontSize: crown ? 14.5 : 11.5, color: nameColor, textAlign: 'center' }}>{entry.name}</span>
+      <ShieldCrest size={size} pattern={entry.crestPattern} />
+      <span style={{ fontFamily: 'var(--font-heading)', fontSize: crown ? 14.5 : 11.5, color: nameColor, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
+        {entry.username}
+      </span>
       <div
         style={{
           width: '100%',
@@ -165,8 +181,8 @@ function PodiumSpot({
           justifyContent: 'flex-end',
         }}
       >
-        <span style={{ fontFamily: 'var(--font-heading)', fontSize: crown ? 34 : 20, color: crown ? 'var(--color-text-primary)' : '#fff' }}>{entry.position}</span>
-        <span style={{ fontFamily: 'var(--font-heading)', fontSize: crown ? 19 : 14, color: crown ? 'var(--color-text-primary)' : '#fff' }}>{entry.points}</span>
+        <span style={{ fontFamily: 'var(--font-heading)', fontSize: crown ? 34 : 20, color: crown ? 'var(--color-text-primary)' : '#fff' }}>{entry.rank}</span>
+        <span style={{ fontFamily: 'var(--font-heading)', fontSize: crown ? 19 : 14, color: crown ? 'var(--color-text-primary)' : '#fff' }}>{entry.totalPoints}</span>
         <span style={{ font: '600 8.5px/1 var(--font-mono)', letterSpacing: '.1em', color: crown ? 'var(--color-text-primary)' : '#A9B4CC', opacity: crown ? 0.75 : 1 }}>PT</span>
       </div>
     </div>

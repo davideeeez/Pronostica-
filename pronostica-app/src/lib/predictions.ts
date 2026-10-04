@@ -32,6 +32,17 @@ export async function fetchMyPredictions(userId: string, matchIds: string[]): Pr
   return map;
 }
 
+/** Numero di pronostici dell'utente su partite che hanno già un risultato (per "precisione" in Profilo). */
+export async function fetchMyMatchesScored(userId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('prediction_scores')
+    .select('points')
+    .eq('user_id', userId)
+    .not('points', 'is', null);
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
 export interface PredictionEntry {
   matchId: string;
   homeGoals: number;

@@ -5,19 +5,21 @@ import { ChevronRightIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useRoundLock } from '../hooks/useRoundLock';
 import { fetchMyPredictions } from '../lib/predictions';
-import { serieARounds, currentRoundNumber, lastPlayedRound, leagues, currentUser } from '../data/mock';
+import { fetchLeaderboard, type LeaderboardRow } from '../lib/leaderboard';
+import { serieARounds, currentRoundNumber, lastPlayedRound, leagues } from '../data/mock';
 
 export function Home() {
   const { profile, session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const [done, setDone] = useState(0);
+  const [myRow, setMyRow] = useState<LeaderboardRow | null>(null);
+  const [leaderboardHasPoints, setLeaderboardHasPoints] = useState(false);
   const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
   const { countdownLabel } = useRoundLock(currentRoundNumber);
   const total = currentRound.matches.length;
   const remaining = total - done;
   const progressPct = Math.round((done / total) * 100);
   const hasLeagues = leagues.some((l) => !l.isGeneral);
-  const selectedLeague = leagues.find((l) => l.id === selectedLeagueId) ?? leagues[0];
   const last = lastPlayedRound;
 
   useEffect(() => {
@@ -25,6 +27,10 @@ export function Home() {
     const matchIds = currentRound.matches.map((m) => m.id);
     fetchMyPredictions(session.user.id, matchIds).then((map) => {
       setDone(Object.keys(map).length);
+    });
+    fetchLeaderboard().then((rows) => {
+      setLeaderboardHasPoints(rows.some((r) => r.totalPoints > 0));
+      setMyRow(rows.find((r) => r.userId === session.user.id) ?? null);
     });
   }, [session, currentRound]);
 
@@ -87,19 +93,16 @@ export function Home() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8 }}>
               <div className="stat-tile">
                 <span className="stat-tile__label">PUNTI</span>
-                <span className="stat-tile__value">{currentUser.leaguePoints.toLocaleString('it-IT')}</span>
+                <span className="stat-tile__value">{(myRow?.totalPoints ?? 0).toLocaleString('it-IT')}</span>
               </div>
               <div className="stat-tile">
                 <span className="stat-tile__label">POSIZIONE</span>
-                <span className="stat-tile__value">{selectedLeague.position ?? '—'}</span>
+                <span className="stat-tile__value">{leaderboardHasPoints && myRow ? myRow.rank : '—'}</span>
               </div>
               <div className="stat-tile">
                 <span className="stat-tile__label">VARIAZIONE</span>
-                <span className="stat-tile__value">
-                  {selectedLeague.delta === null ? '—' : (
-                    <>{selectedLeague.delta >= 0 ? '▲' : '▼'} {Math.abs(selectedLeague.delta)}</>
-                  )}
-                </span>
+                {/* Richiede uno storico delle posizioni turno-per-turno non ancora tracciato: per ora nessun dato finto. */}
+                <span className="stat-tile__value">—</span>
               </div>
             </div>
 

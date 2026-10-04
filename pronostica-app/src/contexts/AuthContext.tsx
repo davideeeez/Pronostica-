@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase, supabaseConfigured } from '../lib/supabaseClient';
+import { supabase, supabaseConfigured, supabaseConfigDiagnostic } from '../lib/supabaseClient';
 import type { CrestPattern } from '../data/mock';
 
 export interface Profile {
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(supabaseConfigDiagnostic);
 
   function clearAuthError() {
     setAuthError(null);

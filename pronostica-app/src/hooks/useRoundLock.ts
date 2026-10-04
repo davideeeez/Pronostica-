@@ -6,6 +6,13 @@ const DAYS = ['DOM', 'LUN', 'MAR', 'MER', 'GIO', 'VEN', 'SAB'];
 function formatCountdown(ms: number): string {
   if (ms <= 0) return '00:00:00';
   const totalSeconds = Math.floor(ms / 1000);
+  // Oltre le 24 ore mostriamo giorni+ore (il secondo non è significativo a quella scala);
+  // sotto le 24 ore torna il countdown preciso HH:MM:SS che scorre ogni secondo.
+  if (totalSeconds >= 86400) {
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    return `${days}G ${String(hours).padStart(2, '0')}H`;
+  }
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;

@@ -146,7 +146,6 @@ export const serieARounds: SerieARound[] = [
     number: 2,
     dateRangeLabel: '28–31 agosto 2026',
     status: 'played-unverified',
-    missingMatches: 1, // manca l'abbinamento Genoa/Lazio: non riportato dalle fonti trovate, non indovinato
     matches: [
       { id: 'r2-milan-venezia', home: 'Milan', away: 'Venezia', homeScore: null, awayScore: null },
       { id: 'r2-fiorentina-frosinone', home: 'Fiorentina', away: 'Frosinone', homeScore: null, awayScore: null },
@@ -157,6 +156,7 @@ export const serieARounds: SerieARound[] = [
       { id: 'r2-cagliari-inter', home: 'Cagliari', away: 'Inter', homeScore: null, awayScore: null },
       { id: 'r2-lecce-roma', home: 'Lecce', away: 'Roma', homeScore: null, awayScore: null },
       { id: 'r2-atalanta-bologna', home: 'Atalanta', away: 'Bologna', homeScore: null, awayScore: null },
+      { id: 'r2-lazio-genoa', home: 'Lazio', away: 'Genoa', homeScore: null, awayScore: null },
     ],
   },
   {

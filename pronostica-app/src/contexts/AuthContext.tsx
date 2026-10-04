@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase, supabaseConfigured, supabaseConfigDiagnostic } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 import type { CrestPattern } from '../data/mock';
 
 export interface Profile {
@@ -12,7 +12,6 @@ export interface Profile {
 
 interface AuthContextValue {
   loading: boolean;
-  configured: boolean;
   session: Session | null;
   profile: Profile | null;
   authError: string | null;
@@ -50,25 +49,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [authError, setAuthError] = useState<string | null>(supabaseConfigDiagnostic);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   function clearAuthError() {
     setAuthError(null);
   }
 
   async function loadProfile(userId: string) {
-    if (!supabase) return;
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (error) setAuthError(error.message);
     setProfile(data);
   }
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
     const urlError = readOAuthErrorFromUrl();
     if (urlError) {
       setAuthError(urlError);
@@ -108,7 +101,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signInWithGoogle() {
-    if (!supabase) return;
     setAuthError(null);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -118,12 +110,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    if (!supabase) return;
     await supabase.auth.signOut();
   }
 
   async function saveProfile(fields: { username: string; crest_pattern: CrestPattern }) {
-    if (!supabase || !session) throw new Error('Nessun utente loggato.');
+    if (!session) throw new Error('Nessun utente loggato.');
     const { data, error } = await supabase
       .from('profiles')
       .upsert({ id: session.user.id, ...fields })
@@ -134,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ loading, configured: supabaseConfigured, session, profile, authError, clearAuthError, signInWithGoogle, signOut, saveProfile }}>
+    <AuthContext.Provider value={{ loading, session, profile, authError, clearAuthError, signInWithGoogle, signOut, saveProfile }}>
       {children}
     </AuthContext.Provider>
   );

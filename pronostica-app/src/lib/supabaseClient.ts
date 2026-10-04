@@ -1,42 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 /**
- * true solo se entrambe le variabili sono presenti. Niente `throw` qui: un errore
- * a livello di modulo impedirebbe a React di montare qualsiasi cosa, risultando
- * in una pagina bianca senza nessun messaggio utile per chi deve fare debug.
+ * L'anon key e l'URL del progetto Supabase sono valori PUBBLICI per progettazione
+ * (finiscono comunque nel bundle del browser): nessun motivo per passarli da env
+ * var su Vercel, il cui campo "Value" mascherato ha ripetutamente corrotto il
+ * valore incollato (un carattere veniva sostituito da un pallino "•", probabilmente
+ * per interferenza di un password manager del browser sul campo stile-password).
+ * Scritti qui, il valore non passa mai da un campo UI mascherato.
  */
-export const supabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+const SUPABASE_URL = 'https://fhkhtnkhrtgxncowyqwj.supabase.co';
+const SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZoa2h0bmtocnRneG5jb3d5cXdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNjQ3MTYsImV4cCI6MjEwNTk0MDcxNn0.ZPt6-UwSZ2zANLLJAbdHcUzjfZZZ6fzCYtfdwZnl21Y';
 
-/**
- * Diagnostica temporanea: un header HTTP non accetta caratteri fuori ISO-8859-1.
- * Se una delle due env var contiene un carattere "sporco" (spazio/virgoletta
- * tipografica finita lì per un copia-incolla), lo individuiamo qui invece di
- * lasciare che fetch() fallisca con un errore generico senza dire dove.
- */
-function findInvalidChars(label: string, value: string | undefined): string | null {
-  if (!value) return null;
-  for (let i = 0; i < value.length; i++) {
-    const code = value.codePointAt(i)!;
-    if (code > 255) {
-      return `${label}: carattere non valido in posizione ${i}: "${value[i]}" (U+${code.toString(16).toUpperCase().padStart(4, '0')})`;
-    }
-  }
-  return null;
-}
-
-export const supabaseConfigDiagnostic =
-  findInvalidChars('VITE_SUPABASE_URL', supabaseUrl) ||
-  findInvalidChars('VITE_SUPABASE_ANON_KEY', supabaseAnonKey) ||
-  (supabaseAnonKey ? `VITE_SUPABASE_ANON_KEY: lunghezza ${supabaseAnonKey.length} (attesa 208)` : null);
+export const supabaseConfigured = true;
 
 /**
  * detectSessionInUrl disattivato: leggiamo noi il token dall'hash in AuthContext
  * (il rilevamento automatico non scatta in modo affidabile dietro il Service Worker
  * della PWA in produzione).
  */
-export const supabase = supabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey, { auth: { detectSessionInUrl: false } })
-  : null;
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { detectSessionInUrl: false },
+});

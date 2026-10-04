@@ -1,21 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useRoundLock } from '../hooks/useRoundLock';
+import { fetchMyPredictions } from '../lib/predictions';
 import { serieARounds, currentRoundNumber, lastPlayedRound, leagues, currentUser } from '../data/mock';
 
 export function Home() {
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
+  const [done, setDone] = useState(0);
   const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
-  const done = currentRound.matches.filter((m) => m.myPrediction).length;
+  const { countdownLabel } = useRoundLock(currentRoundNumber);
   const total = currentRound.matches.length;
   const remaining = total - done;
   const progressPct = Math.round((done / total) * 100);
   const hasLeagues = leagues.some((l) => !l.isGeneral);
   const selectedLeague = leagues.find((l) => l.id === selectedLeagueId) ?? leagues[0];
   const last = lastPlayedRound;
+
+  useEffect(() => {
+    if (!session) return;
+    const matchIds = currentRound.matches.map((m) => m.id);
+    fetchMyPredictions(session.user.id, matchIds).then((map) => {
+      setDone(Object.keys(map).length);
+    });
+  }, [session, currentRound]);
 
   return (
     <div className="page">
@@ -36,7 +47,7 @@ export function Home() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 12, color: '#A9B4CC' }}>Chiude tra</span>
             <span style={{ fontFamily: 'var(--font-heading)', fontSize: 52, lineHeight: 0.92, letterSpacing: '-.02em' }}>
-              {currentRound.countdownLabel ?? '—'}
+              {countdownLabel ?? '—'}
             </span>
             <span style={{ fontSize: 12.5, lineHeight: 1.35, color: '#A9B4CC' }}>
               Hai {remaining} partite ancora da pronosticare

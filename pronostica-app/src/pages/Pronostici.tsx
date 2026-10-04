@@ -1,21 +1,89 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, CheckIcon, InfoCircleIcon, LockIcon } from '../components/icons';
+import { useAuth } from '../contexts/AuthContext';
+import { useRoundLock } from '../hooks/useRoundLock';
+import { fetchMyPredictions, saveMyPredictions } from '../lib/predictions';
 import { serieARounds, currentRoundNumber, SCHEDULE_COMPLETE_THROUGH, fantasyPointsForMatch, seasonalPredictions, type RealMatch } from '../data/mock';
 
 type Tab = 'pronostica' | 'calendario';
+type Draft = { home: string; away: string };
+
+const ALL_MATCH_IDS = serieARounds.flatMap((r) => r.matches.map((m) => m.id));
 
 export function Pronostici() {
   const location = useLocation();
+  const { session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const [tab, setTab] = useState<Tab>((location.state as { tab?: Tab } | null)?.tab ?? 'pronostica');
   const lastPlayed = [...serieARounds].reverse().find((r) => r.status === 'played');
   const [expandedRound, setExpandedRound] = useState<number | null>(lastPlayed?.number ?? null);
 
   const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
-  const done = currentRound.matches.filter((m) => m.myPrediction).length;
+  const { isOpen, loading: lockLoading, closesLabel, countdownLabel } = useRoundLock(currentRoundNumber);
+
+  const [predictionsMap, setPredictionsMap] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    fetchMyPredictions(session.user.id, ALL_MATCH_IDS).then((map) => {
+      setPredictionsMap(map);
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const m of currentRound.matches) {
+          if (next[m.id]) continue;
+          const saved = map[m.id];
+          next[m.id] = saved ? { home: saved.split('-')[0], away: saved.split('-')[1] } : { home: '', away: '' };
+        }
+        return next;
+      });
+    });
+  }, [session]);
+
+  const roundsWithPredictions = useMemo(
+    () =>
+      serieARounds.map((r) => ({
+        ...r,
+        matches: r.matches.map((m) => ({ ...m, myPrediction: predictionsMap[m.id] })),
+      })),
+    [predictionsMap],
+  );
+
+  const done = currentRound.matches.filter((m) => {
+    const d = drafts[m.id];
+    return d && d.home !== '' && d.away !== '';
+  }).length;
   const total = currentRound.matches.length;
+
+  function setDraft(matchId: string, field: 'home' | 'away', value: string) {
+    const digit = value.replace(/\D/g, '').slice(-1);
+    setDrafts((prev) => ({ ...prev, [matchId]: { ...(prev[matchId] ?? { home: '', away: '' }), [field]: digit } }));
+  }
+
+  async function handleConfirm() {
+    if (!session || !isOpen) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const entries = currentRound.matches
+        .filter((m) => drafts[m.id]?.home !== '' && drafts[m.id]?.away !== '')
+        .map((m) => ({ matchId: m.id, homeGoals: Number(drafts[m.id].home), awayGoals: Number(drafts[m.id].away) }));
+      await saveMyPredictions(session.user.id, entries);
+      setPredictionsMap((prev) => {
+        const next = { ...prev };
+        for (const e of entries) next[e.matchId] = `${e.homeGoals}-${e.awayGoals}`;
+        return next;
+      });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Errore sconosciuto, riprova.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="page">
@@ -27,20 +95,22 @@ export function Pronostici() {
         </div>
       </div>
 
-      <div className="page-scroll" style={tab === 'pronostica' ? { paddingBottom: 230 } : undefined}>
+      <div className="page-scroll" style={tab === 'pronostica' && isOpen ? { paddingBottom: 230 } : undefined}>
         {tab === 'pronostica' ? (
           <>
             <div className="card-dark" style={{ padding: '15px 17px', display: 'flex', flexDirection: 'column', gap: 11 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <span style={{ font: '600 10.5px/1 var(--font-mono)', letterSpacing: '.12em' }}>SERIE A · GIORNATA {currentRound.number}</span>
-                {currentRound.closesLabel && (
-                  <span style={{ font: '600 10.5px/1 var(--font-mono)', color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>CHIUDE {currentRound.closesLabel}</span>
+                {!lockLoading && closesLabel && (
+                  <span style={{ font: '600 10.5px/1 var(--font-mono)', color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>
+                    {isOpen ? `CHIUDE ${closesLabel}` : 'CHIUSA'}
+                  </span>
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <span style={{ fontSize: 11.5, color: '#A9B4CC' }}>Tempo rimasto per tutta la giornata</span>
-                  <span style={{ fontFamily: 'var(--font-heading)', fontSize: 28, lineHeight: 1 }}>{currentRound.countdownLabel ?? '—'}</span>
+                  <span style={{ fontFamily: 'var(--font-heading)', fontSize: 28, lineHeight: 1 }}>{isOpen ? (countdownLabel ?? '—') : '00:00:00'}</span>
                 </div>
                 <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15, color: 'var(--color-accent)', background: 'rgba(255,255,255,.08)', borderRadius: 9, padding: '8px 10px', whiteSpace: 'nowrap' }}>
                   {done}/{total}
@@ -61,12 +131,34 @@ export function Pronostici() {
               </Link>
             </div>
 
+            {!isOpen && !lockLoading && (
+              <div className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 9 }}>
+                <LockIcon color="var(--color-text-secondary)" size={16} />
+                <span style={{ fontSize: 12.5, color: 'var(--color-text-secondary)' }}>
+                  Pronostici chiusi: la prima partita della giornata è già iniziata. I tuoi pronostici restano in sola lettura.
+                </span>
+              </div>
+            )}
+
+            {saveError && (
+              <div className="card" style={{ padding: '12px 14px', border: '1px solid #C0304A', background: 'rgba(192,48,74,.06)' }}>
+                <span style={{ fontSize: 12.5, color: '#C0304A' }}>{saveError}</span>
+              </div>
+            )}
+
             <div className="section-divider-row">
               <span className="section-label" style={{ padding: 0 }}>{currentRound.dateRangeLabel.toUpperCase()} · {currentRound.matches.length} PARTITE</span>
               <span className="section-divider-row__line" />
             </div>
             {currentRound.matches.map((m) => (
-              <MatchCard key={`${m.home}-${m.away}`} match={m} />
+              <MatchCard
+                key={m.id}
+                match={m}
+                draft={drafts[m.id] ?? { home: '', away: '' }}
+                editable={isOpen}
+                onChangeHome={(v) => setDraft(m.id, 'home', v)}
+                onChangeAway={(v) => setDraft(m.id, 'away', v)}
+              />
             ))}
 
             <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 11 }}>
@@ -94,14 +186,20 @@ export function Pronostici() {
               </span>
             </div>
 
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 79, background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', padding: '12px 18px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button className="btn btn-primary" style={{ fontSize: 14.5, padding: '14px 16px', minHeight: 48 }}>Conferma</button>
-              <button className="btn btn-outline" style={{ fontSize: 13.5, padding: '13px 16px', minHeight: 48 }}>Conferma per tutte le leghe</button>
-            </div>
+            {isOpen && (
+              <div style={{ position: 'absolute', left: 0, right: 0, bottom: 79, background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', padding: '12px 18px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button className="btn btn-primary" style={{ fontSize: 14.5, padding: '14px 16px', minHeight: 48 }} onClick={handleConfirm} disabled={saving || done === 0}>
+                  {saving ? 'Salvataggio…' : 'Conferma'}
+                </button>
+                <button className="btn btn-outline" style={{ fontSize: 13.5, padding: '13px 16px', minHeight: 48 }} onClick={handleConfirm} disabled={saving || done === 0}>
+                  Conferma per tutte le leghe
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <>
-            {serieARounds.map((round) => {
+            {roundsWithPredictions.map((round) => {
               if (round.status === 'upcoming') {
                 const roundDone = round.matches.filter((m) => m.myPrediction).length;
                 return (
@@ -167,7 +265,7 @@ export function Pronostici() {
                       {round.matches.map((m) => {
                         const pts = fantasyPointsForMatch(m);
                         return (
-                          <div key={`${m.home}-${m.away}`} style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--color-bg)' }}>
+                          <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--color-bg)' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
                               <span style={{ fontSize: 12.5 }}>{m.home} — {m.away}</span>
                               <span style={{ font: '400 9.5px/1 var(--font-mono)', color: 'var(--color-text-secondary)' }}>{m.homeScore}-{m.awayScore}</span>
@@ -226,68 +324,78 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
   );
 }
 
-function MatchCard({ match }: { match: RealMatch }) {
-  const done = Boolean(match.myPrediction);
-  const [ph, pa] = match.myPrediction ? match.myPrediction.split('-') : ['–', '–'];
+function ScoreInput({ value, onChange, editable, done }: { value: string; onChange: (v: string) => void; editable: boolean; done: boolean }) {
+  const borderColor = done ? 'var(--color-primary)' : '#B9C4DC';
+  return (
+    <input
+      type="tel"
+      inputMode="numeric"
+      maxLength={1}
+      value={value}
+      disabled={!editable}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      placeholder="–"
+      style={{
+        width: 46,
+        height: 38,
+        border: `1.5px ${done ? 'solid' : 'dashed'} ${borderColor}`,
+        borderRadius: 9,
+        textAlign: 'center',
+        fontFamily: 'var(--font-heading)',
+        fontSize: 14,
+        color: done ? 'var(--color-text-primary)' : '#B9C4DC',
+        background: editable ? 'var(--color-surface)' : 'var(--color-bg)',
+      }}
+    />
+  );
+}
 
-  if (done) {
-    return (
-      <div
-        className="card"
-        style={{
-          border: '1.5px solid var(--color-primary)',
-          padding: '13px 15px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-          cursor: 'pointer',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-          <span className="badge-accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <CheckIcon size={11} color="var(--color-text-primary)" /> FATTO
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15.5 }}>{match.home} — {match.away}</span>
-          <ChevronRightIcon />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, borderTop: '1px solid var(--color-bg)', paddingTop: 10 }}>
-          <span style={{ width: 46, border: '1.5px solid var(--color-primary)', borderRadius: 9, padding: '8px 0', textAlign: 'center', fontFamily: 'var(--font-heading)', fontSize: 14 }}>{ph}</span>
-          <span style={{ fontFamily: 'var(--font-heading)', fontSize: 13 }}>:</span>
-          <span style={{ width: 46, border: '1.5px solid var(--color-primary)', borderRadius: 9, padding: '8px 0', textAlign: 'center', fontFamily: 'var(--font-heading)', fontSize: 14 }}>{pa}</span>
-          <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>Modifica</span>
-        </div>
-      </div>
-    );
-  }
+function MatchCard({
+  match,
+  draft,
+  editable,
+  onChangeHome,
+  onChangeAway,
+}: {
+  match: RealMatch;
+  draft: Draft;
+  editable: boolean;
+  onChangeHome: (v: string) => void;
+  onChangeAway: (v: string) => void;
+}) {
+  const done = draft.home !== '' && draft.away !== '';
 
   return (
     <div
       className="card"
       style={{
-        borderStyle: 'dashed',
-        borderWidth: 1.5,
-        borderColor: '#B9C4DC',
+        border: done ? '1.5px solid var(--color-primary)' : '1.5px dashed #B9C4DC',
         padding: '13px 15px',
         display: 'flex',
         flexDirection: 'column',
         gap: 10,
-        cursor: 'pointer',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
-        <span className="badge-accent">DA FARE</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+        {done ? (
+          <span className="badge-accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <CheckIcon size={11} color="var(--color-text-primary)" /> FATTO
+          </span>
+        ) : (
+          <span className="badge-accent">DA FARE</span>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15.5 }}>{match.home} — {match.away}</span>
-        <ChevronRightIcon />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, borderTop: '1px solid var(--color-bg)', paddingTop: 10 }}>
-        <span style={{ width: 46, border: '1.5px dashed #B9C4DC', borderRadius: 9, padding: '8px 0', textAlign: 'center', fontFamily: 'var(--font-heading)', fontSize: 14, color: '#B9C4DC' }}>–</span>
-        <span style={{ fontFamily: 'var(--font-heading)', fontSize: 13, color: '#B9C4DC' }}>:</span>
-        <span style={{ width: 46, border: '1.5px dashed #B9C4DC', borderRadius: 9, padding: '8px 0', textAlign: 'center', fontFamily: 'var(--font-heading)', fontSize: 14, color: '#B9C4DC' }}>–</span>
-        <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>inserisci il risultato esatto</span>
+        <ScoreInput value={draft.home} onChange={onChangeHome} editable={editable} done={done} />
+        <span style={{ fontFamily: 'var(--font-heading)', fontSize: 13, color: done ? undefined : '#B9C4DC' }}>:</span>
+        <ScoreInput value={draft.away} onChange={onChangeAway} editable={editable} done={done} />
+        <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>
+          {editable ? (done ? 'Tocca per modificare' : 'inserisci il risultato esatto') : 'pronostici chiusi'}
+        </span>
       </div>
     </div>
   );

@@ -11,19 +11,21 @@ interface AppHeaderProps {
 
 export function AppHeader({ selectedLeagueId, onSelectLeague }: AppHeaderProps) {
   const [open, setOpen] = useState(false);
-  const selected = leagues.find((l) => l.id === selectedLeagueId) ?? leagues[0];
+  const selected = leagues.find((l) => l.id === selectedLeagueId);
 
   return (
     <div className="app-header">
       <div className="app-header__row">
         <Link to="/" className="app-header__logo">P!</Link>
-        <div className="app-header__selector" onClick={() => setOpen((v) => !v)}>
-          <span className="app-header__selector-name">{selected.name}</span>
-          <ChevronDownIcon />
-        </div>
+        {selected && (
+          <div className="app-header__selector" onClick={() => setOpen((v) => !v)}>
+            <span className="app-header__selector-name">{selected.name}</span>
+            <ChevronDownIcon />
+          </div>
+        )}
       </div>
 
-      {open && (
+      {open && selected && (
         <div className="app-header__dropdown">
           {leagues.map((l) => (
             <div

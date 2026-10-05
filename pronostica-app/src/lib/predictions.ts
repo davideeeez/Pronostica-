@@ -32,15 +32,31 @@ export async function fetchMyPredictions(userId: string, matchIds: string[]): Pr
   return map;
 }
 
-/** Numero di pronostici dell'utente su partite che hanno già un risultato (per "precisione" in Profilo). */
-export async function fetchMyMatchesScored(userId: string): Promise<number> {
+export interface MyScoreStats {
+  totalPoints: number;
+  exactResults: number;
+  correctOutcomes: number;
+  matchesScored: number;
+}
+
+/**
+ * Statistiche personali calcolate da prediction_scores (mai dalla classifica
+ * generale, sospesa fino a gennaio e non più leggibile da authenticated).
+ */
+export async function fetchMyScoreStats(userId: string): Promise<MyScoreStats> {
   const { data, error } = await supabase
     .from('prediction_scores')
     .select('points')
     .eq('user_id', userId)
     .not('points', 'is', null);
   if (error) throw error;
-  return data?.length ?? 0;
+  const rows = data ?? [];
+  return {
+    totalPoints: rows.reduce((sum, r) => sum + (r.points ?? 0), 0),
+    exactResults: rows.filter((r) => r.points === 3).length,
+    correctOutcomes: rows.filter((r) => r.points === 1).length,
+    matchesScored: rows.length,
+  };
 }
 
 export interface PredictionEntry {

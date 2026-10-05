@@ -14,13 +14,12 @@ export interface League {
 }
 
 /**
- * Stato iniziale reale: l'utente parte senza leghe private. L'unica voce
- * sempre presente è la classifica generale della piattaforma (nessuna
- * posizione/punteggio personale finché non ha giocato).
+ * Classifica generale sospesa fino a gennaio (si riattiva dopo la giornata 19):
+ * nessuna voce "sempre presente" in selettore/Leghe finché non si gioca solo
+ * in leghe private/pubbliche. Il collegamento reale al database arriva nella
+ * fase Leghe successiva.
  */
-export const leagues: League[] = [
-  { id: 'gen', name: 'Classifica generale', members: 0, points: null, position: null, delta: null, isGeneral: true, isPrivate: false },
-];
+export const leagues: League[] = [];
 
 export interface LeagueMember {
   position: number;

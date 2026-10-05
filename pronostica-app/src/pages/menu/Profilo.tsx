@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { ShieldCrest, EditIcon, ChevronRightThinIcon, CameraIcon } from '../../components/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { fetchLeaderboard, type LeaderboardRow } from '../../lib/leaderboard';
-import { fetchMyMatchesScored } from '../../lib/predictions';
+import { fetchMyScoreStats, type MyScoreStats } from '../../lib/predictions';
 import { crestPatterns, type CrestPattern } from '../../data/mock';
 
 export function Profilo() {
@@ -14,18 +13,17 @@ export function Profilo() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [draftCrest, setDraftCrest] = useState<CrestPattern>(crest);
   const [savingCrest, setSavingCrest] = useState(false);
-  const [myRow, setMyRow] = useState<LeaderboardRow | null>(null);
-  const [matchesScored, setMatchesScored] = useState(0);
+  const [stats, setStats] = useState<MyScoreStats | null>(null);
 
   useEffect(() => {
     if (!session) return;
-    fetchLeaderboard().then((rows) => setMyRow(rows.find((r) => r.userId === session.user.id) ?? null));
-    fetchMyMatchesScored(session.user.id).then(setMatchesScored);
+    fetchMyScoreStats(session.user.id).then(setStats);
   }, [session]);
 
-  const totalPoints = myRow?.totalPoints ?? 0;
-  const exactResults = myRow?.exactResults ?? 0;
-  const correctOutcomes = myRow?.correctOutcomes ?? 0;
+  const totalPoints = stats?.totalPoints ?? 0;
+  const exactResults = stats?.exactResults ?? 0;
+  const correctOutcomes = stats?.correctOutcomes ?? 0;
+  const matchesScored = stats?.matchesScored ?? 0;
   const accuracy = matchesScored > 0 ? Math.round(((exactResults + correctOutcomes) / matchesScored) * 100) : 0;
 
   function openGallery() {

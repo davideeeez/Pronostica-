@@ -1,3 +1,10 @@
+/**
+ * Classifica generale SOSPESA fino a gennaio (si riattiva dopo la giornata 19):
+ * il SELECT su general_leaderboard è stato revocato anche ad authenticated,
+ * quindi fetchLeaderboard() fallirebbe se chiamata ora. Nessun componente la
+ * importa finché la vista non viene riattivata — file tenuto pronto, non
+ * cancellato, esattamente come la vista nel database.
+ */
 import { supabase } from './supabaseClient';
 import type { CrestPattern } from '../data/mock';
 

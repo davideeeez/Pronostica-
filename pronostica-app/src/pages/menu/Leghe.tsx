@@ -4,7 +4,6 @@ import { PlusIcon, CodeIcon, SearchIcon, ShieldCrest, ChevronRightThinIcon } fro
 import { leagues } from '../../data/mock';
 
 export function Leghe() {
-  const general = leagues.find((l) => l.isGeneral)!;
   const privateLeagues = leagues.filter((l) => l.isPrivate);
   const publicLeagues = leagues.filter((l) => !l.isPrivate && !l.isGeneral);
 
@@ -31,11 +30,6 @@ export function Leghe() {
             <SearchIcon size={22} />
             <span style={{ fontWeight: 600, fontSize: 13 }}>Esplora leghe pubbliche</span>
           </Link>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span className="section-label">SEMPRE ATTIVA</span>
-          <LeagueRow id={general.id} name={general.name} members={general.members} points={general.points} position={general.position} tag="GENERALE" />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -66,25 +60,6 @@ export function Leghe() {
         )}
       </div>
     </div>
-  );
-}
-
-function LeagueRow({ name, points, position, tag }: { id: string; name: string; members: number; points: number | null; position: number | null; tag: string }) {
-  return (
-    <Link to="/classifica" className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 11, minHeight: 48 }}>
-      <ShieldCrest size={26} />
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>{name}</span>
-          <span className="badge-accent" style={{ fontSize: 8, padding: '4px 7px', borderRadius: 99 }}>{tag}</span>
-        </div>
-        <span style={{ font: '400 10px/1 var(--font-mono)', letterSpacing: '.05em', color: 'var(--color-text-secondary)' }}>{points ?? 0} PT</span>
-      </div>
-      <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-        <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15 }}>{position !== null ? position.toLocaleString('it-IT') : '—'}</span>
-        <span style={{ font: '600 8px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>POS</span>
-      </div>
-    </Link>
   );
 }
 

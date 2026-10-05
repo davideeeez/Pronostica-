@@ -4,16 +4,14 @@ import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useRoundLock } from '../hooks/useRoundLock';
-import { fetchMyPredictions } from '../lib/predictions';
-import { fetchLeaderboard, type LeaderboardRow } from '../lib/leaderboard';
+import { fetchMyPredictions, fetchMyScoreStats, type MyScoreStats } from '../lib/predictions';
 import { serieARounds, currentRoundNumber, lastPlayedRound, leagues } from '../data/mock';
 
 export function Home() {
   const { profile, session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const [done, setDone] = useState(0);
-  const [myRow, setMyRow] = useState<LeaderboardRow | null>(null);
-  const [leaderboardHasPoints, setLeaderboardHasPoints] = useState(false);
+  const [myStats, setMyStats] = useState<MyScoreStats | null>(null);
   const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
   const { countdownLabel } = useRoundLock(currentRoundNumber);
   const total = currentRound.matches.length;
@@ -28,10 +26,7 @@ export function Home() {
     fetchMyPredictions(session.user.id, matchIds).then((map) => {
       setDone(Object.keys(map).length);
     });
-    fetchLeaderboard().then((rows) => {
-      setLeaderboardHasPoints(rows.some((r) => r.totalPoints > 0));
-      setMyRow(rows.find((r) => r.userId === session.user.id) ?? null);
-    });
+    fetchMyScoreStats(session.user.id).then(setMyStats);
   }, [session, currentRound]);
 
   return (
@@ -93,11 +88,12 @@ export function Home() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8 }}>
               <div className="stat-tile">
                 <span className="stat-tile__label">PUNTI</span>
-                <span className="stat-tile__value">{(myRow?.totalPoints ?? 0).toLocaleString('it-IT')}</span>
+                <span className="stat-tile__value">{(myStats?.totalPoints ?? 0).toLocaleString('it-IT')}</span>
               </div>
               <div className="stat-tile">
                 <span className="stat-tile__label">POSIZIONE</span>
-                <span className="stat-tile__value">{leaderboardHasPoints && myRow ? myRow.rank : '—'}</span>
+                {/* Classifica generale sospesa fino a gennaio: nessuna posizione da mostrare. */}
+                <span className="stat-tile__value">—</span>
               </div>
               <div className="stat-tile">
                 <span className="stat-tile__label">VARIAZIONE</span>

@@ -18,9 +18,13 @@ nel frattempo si gioca solo in leghe.
 
 ## Sicurezza database — checklist obbligatoria dopo ogni modifica allo schema
 
-- Ogni policy RLS è scoperta `TO authenticated` (mai `PUBLIC`/`anon`), a meno
-  che il dato non sia esplicitamente pensato per essere pubblico (es.
-  calendario partite).
+- Ogni policy RLS è scoperta `TO authenticated` (mai `PUBLIC`/`anon`) — anche
+  dati apparentemente innocui come il calendario partite (`matches`/`rounds`)
+  sono riservati agli utenti loggati, non pubblici.
+- Dopo aver creato/modificato una policy: revocare anche i privilegi di
+  tabella (`GRANT`) ad `anon` se non già assenti — altrimenti `anon` ottiene
+  zero righe per via della RLS ma nessun errore di permesso netto
+  (comportamento più debole, da evitare).
 - Ogni vista che espone dati utente è creata con `security_invoker = true`
   (altrimenti gira con i permessi di chi l'ha creata, bypassando la RLS delle
   tabelle sottostanti).
@@ -51,6 +55,18 @@ nel frattempo si gioca solo in leghe.
 - `matches`/`rounds` sono scrivibili solo da SQL diretto (nessuna policy di
   insert/update/delete per `authenticated`/`anon`): i risultati e gli orari
   ufficiali li inserisce chi lavora al progetto, mai l'app.
+- **Il calendario (squadre, orari, risultati, stato dei turni) vive solo in
+  `matches`/`rounds`, mai ricopiato nel codice** (niente dati di calendario
+  in `mock.ts` o altrove nel frontend). Il frontend legge dalla vista
+  `calendar` (`src/lib/calendar.ts` + `src/hooks/useCalendar.ts`), una sola
+  query per tutte le giornate, non una per partita.
+- "Turno corrente" ha un'unica definizione, in `current_round_number()`: il
+  più basso con almeno una partita senza risultato, altrimenti l'ultimo.
+  Riusarla sempre (vista `calendar`, frontend, future leghe), mai ridefinirla
+  altrove.
+- `rounds.locks_at` è calcolato in automatico da un trigger su `matches`
+  (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
+  spostarlo più avanti una volta già passato (il turno non può "riaprire").
 
 ## Prima di ogni modifica non banale
 

@@ -1,33 +1,23 @@
 import { supabase } from './supabaseClient';
 
-export interface RoundLock {
-  roundNumber: number;
-  locksAt: string;
+export interface MyPrediction {
+  matchId: string;
+  homeGoals: number;
+  awayGoals: number;
+  /** Punti già calcolati dal database (prediction_points via prediction_scores); null finché la partita non ha un risultato. */
+  points: number | null;
 }
 
-export async function fetchRoundLock(roundNumber: number): Promise<RoundLock | null> {
+/** Tutti i pronostici dell'utente, con il punteggio già calcolato dal database — una sola query. */
+export async function fetchMyPredictions(userId: string): Promise<Record<string, MyPrediction>> {
   const { data, error } = await supabase
-    .from('rounds')
-    .select('round_number, locks_at')
-    .eq('round_number', roundNumber)
-    .maybeSingle();
+    .from('prediction_scores')
+    .select('match_id, pred_home, pred_away, points')
+    .eq('user_id', userId);
   if (error) throw error;
-  if (!data) return null;
-  return { roundNumber: data.round_number, locksAt: data.locks_at };
-}
-
-/** Pronostici dell'utente per gli id partita indicati, come mappa match_id -> "home-away". */
-export async function fetchMyPredictions(userId: string, matchIds: string[]): Promise<Record<string, string>> {
-  if (matchIds.length === 0) return {};
-  const { data, error } = await supabase
-    .from('predictions')
-    .select('match_id, home_goals, away_goals')
-    .eq('user_id', userId)
-    .in('match_id', matchIds);
-  if (error) throw error;
-  const map: Record<string, string> = {};
+  const map: Record<string, MyPrediction> = {};
   for (const row of data ?? []) {
-    map[row.match_id] = `${row.home_goals}-${row.away_goals}`;
+    map[row.match_id] = { matchId: row.match_id, homeGoals: row.pred_home, awayGoals: row.pred_away, points: row.points };
   }
   return map;
 }

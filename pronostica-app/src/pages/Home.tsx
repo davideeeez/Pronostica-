@@ -3,31 +3,42 @@ import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useCalendar } from '../hooks/useCalendar';
 import { useRoundLock } from '../hooks/useRoundLock';
 import { fetchMyPredictions, fetchMyScoreStats, type MyScoreStats } from '../lib/predictions';
-import { serieARounds, currentRoundNumber, lastPlayedRound, leagues } from '../data/mock';
+import { leagues } from '../data/mock';
 
 export function Home() {
   const { profile, session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const [done, setDone] = useState(0);
   const [myStats, setMyStats] = useState<MyScoreStats | null>(null);
-  const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
-  const { countdownLabel } = useRoundLock(currentRoundNumber);
-  const total = currentRound.matches.length;
+  const { loading, error, currentRound } = useCalendar();
+  const { countdownLabel } = useRoundLock(currentRound?.locksAt ?? null);
+  const total = currentRound?.matches.length ?? 0;
   const remaining = total - done;
-  const progressPct = Math.round((done / total) * 100);
+  const progressPct = total > 0 ? Math.round((done / total) * 100) : 0;
   const hasLeagues = leagues.some((l) => !l.isGeneral);
-  const last = lastPlayedRound;
 
   useEffect(() => {
     if (!session) return;
-    const matchIds = currentRound.matches.map((m) => m.id);
-    fetchMyPredictions(session.user.id, matchIds).then((map) => {
-      setDone(Object.keys(map).length);
+    fetchMyPredictions(session.user.id).then((map) => {
+      if (!currentRound) return;
+      setDone(currentRound.matches.filter((m) => map[m.matchId]).length);
     });
     fetchMyScoreStats(session.user.id).then(setMyStats);
   }, [session, currentRound]);
+
+  if (loading) return <div className="page" />;
+  if (error || !currentRound) {
+    return (
+      <div className="page" style={{ justifyContent: 'center', padding: '0 28px' }}>
+        <p style={{ margin: 0, fontSize: 13.5, textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+          {error ?? 'Nessuna giornata disponibile al momento.'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -37,7 +48,7 @@ export function Home() {
         <div className="card-dark" style={{ padding: '20px 20px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
             <span style={{ font: '600 10.5px/1 var(--font-mono)', letterSpacing: '.12em' }}>
-              SERIE A · GIORNATA {currentRound.number}
+              SERIE A · GIORNATA {currentRound.roundNumber}
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, font: '600 10.5px/1 var(--font-mono)', color: 'var(--color-accent)' }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-accent)', display: 'block' }} />
@@ -127,35 +138,6 @@ export function Home() {
               </Link>
             </div>
           </div>
-        )}
-
-        {last && last.fantasyDemo && (
-          <Link to="/pronostici" state={{ tab: 'calendario' }} className="card" style={{ overflow: 'hidden', textDecoration: 'none', color: 'inherit' }}>
-            <div style={{ padding: '14px 16px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, borderBottom: '1px solid var(--color-border)' }}>
-              <span className="section-label" style={{ padding: 0 }}>
-                RIEPILOGO TURNO · GIORNATA {last.number}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Vedi tutto</span>
-            </div>
-            <div style={{ padding: '15px 16px', display: 'flex', alignItems: 'flex-end', gap: 16 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>Il tuo punteggio</span>
-                <span style={{ fontFamily: 'var(--font-heading)', fontSize: 34, color: 'var(--color-text-primary)' }}>
-                  {last.fantasyDemo.points}
-                  <span style={{ fontSize: 15, color: 'var(--color-text-secondary)' }}> pt</span>
-                </span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--color-text-secondary)' }}>
-                  <span>Media generale {last.fantasyDemo.average} pt</span>
-                  <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>+{last.fantasyDemo.diff}</span>
-                </div>
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${last.fantasyDemo.progress}%` }} />
-                </div>
-              </div>
-            </div>
-          </Link>
         )}
       </div>
     </div>

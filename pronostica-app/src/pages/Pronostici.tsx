@@ -1,63 +1,61 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, CheckIcon, InfoCircleIcon, LockIcon } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useCalendar } from '../hooks/useCalendar';
 import { useRoundLock } from '../hooks/useRoundLock';
-import { fetchMyPredictions, saveMyPredictions } from '../lib/predictions';
-import { serieARounds, currentRoundNumber, SCHEDULE_COMPLETE_THROUGH, fantasyPointsForMatch, seasonalPredictions, type RealMatch } from '../data/mock';
+import { fetchMyPredictions, saveMyPredictions, type MyPrediction } from '../lib/predictions';
+import { formatRoundDateRange, type CalendarMatch, type RoundSummary } from '../lib/calendar';
+import { seasonalPredictions } from '../data/mock';
 
 type Tab = 'pronostica' | 'calendario';
 type Draft = { home: string; away: string };
-
-const ALL_MATCH_IDS = serieARounds.flatMap((r) => r.matches.map((m) => m.id));
 
 export function Pronostici() {
   const location = useLocation();
   const { session } = useAuth();
   const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const [tab, setTab] = useState<Tab>((location.state as { tab?: Tab } | null)?.tab ?? 'pronostica');
-  const lastPlayed = [...serieARounds].reverse().find((r) => r.status === 'played');
-  const [expandedRound, setExpandedRound] = useState<number | null>(lastPlayed?.number ?? null);
+  const { loading: calendarLoading, error: calendarError, rounds, currentRound, lastPlayedRound } = useCalendar();
+  const [expandedRound, setExpandedRound] = useState<number | null>(null);
+  const { isOpen, closesLabel, countdownLabel } = useRoundLock(currentRound?.locksAt ?? null);
 
-  const currentRound = serieARounds.find((r) => r.number === currentRoundNumber)!;
-  const { isOpen, loading: lockLoading, closesLabel, countdownLabel } = useRoundLock(currentRoundNumber);
-
-  const [predictionsMap, setPredictionsMap] = useState<Record<string, string>>({});
+  const [predictionsMap, setPredictionsMap] = useState<Record<string, MyPrediction>>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [predictionsError, setPredictionsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session) return;
-    fetchMyPredictions(session.user.id, ALL_MATCH_IDS).then((map) => {
-      setPredictionsMap(map);
-      setDrafts((prev) => {
-        const next = { ...prev };
-        for (const m of currentRound.matches) {
-          if (next[m.id]) continue;
-          const saved = map[m.id];
-          next[m.id] = saved ? { home: saved.split('-')[0], away: saved.split('-')[1] } : { home: '', away: '' };
-        }
-        return next;
-      });
-    });
-  }, [session]);
+    if (lastPlayedRound && expandedRound === null) setExpandedRound(lastPlayedRound.roundNumber);
+  }, [lastPlayedRound, expandedRound]);
 
-  const roundsWithPredictions = useMemo(
-    () =>
-      serieARounds.map((r) => ({
-        ...r,
-        matches: r.matches.map((m) => ({ ...m, myPrediction: predictionsMap[m.id] })),
-      })),
-    [predictionsMap],
-  );
+  useEffect(() => {
+    if (!session || !currentRound) return;
+    fetchMyPredictions(session.user.id)
+      .then((map) => {
+        setPredictionsMap(map);
+        setDrafts((prev) => {
+          const next = { ...prev };
+          for (const m of currentRound.matches) {
+            if (next[m.matchId]) continue;
+            const saved = map[m.matchId];
+            next[m.matchId] = saved ? { home: String(saved.homeGoals), away: String(saved.awayGoals) } : { home: '', away: '' };
+          }
+          return next;
+        });
+      })
+      .catch((err) => setPredictionsError(err instanceof Error ? err.message : 'Errore sconosciuto.'));
+  }, [session, currentRound]);
 
-  const done = currentRound.matches.filter((m) => {
-    const d = drafts[m.id];
-    return d && d.home !== '' && d.away !== '';
-  }).length;
-  const total = currentRound.matches.length;
+  const done = currentRound
+    ? currentRound.matches.filter((m) => {
+        const d = drafts[m.matchId];
+        return d && d.home !== '' && d.away !== '';
+      }).length
+    : 0;
+  const total = currentRound?.matches.length ?? 0;
 
   function setDraft(matchId: string, field: 'home' | 'away', value: string) {
     const digit = value.replace(/\D/g, '').slice(-1);
@@ -65,25 +63,25 @@ export function Pronostici() {
   }
 
   async function handleConfirm() {
-    if (!session || !isOpen) return;
+    if (!session || !isOpen || !currentRound) return;
     setSaving(true);
     setSaveError(null);
     try {
       const entries = currentRound.matches
-        .filter((m) => drafts[m.id]?.home !== '' && drafts[m.id]?.away !== '')
-        .map((m) => ({ matchId: m.id, homeGoals: Number(drafts[m.id].home), awayGoals: Number(drafts[m.id].away) }));
+        .filter((m) => drafts[m.matchId]?.home !== '' && drafts[m.matchId]?.away !== '')
+        .map((m) => ({ matchId: m.matchId, homeGoals: Number(drafts[m.matchId].home), awayGoals: Number(drafts[m.matchId].away) }));
       await saveMyPredictions(session.user.id, entries);
-      setPredictionsMap((prev) => {
-        const next = { ...prev };
-        for (const e of entries) next[e.matchId] = `${e.homeGoals}-${e.awayGoals}`;
-        return next;
-      });
+      const fresh = await fetchMyPredictions(session.user.id);
+      setPredictionsMap(fresh);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Errore sconosciuto, riprova.');
     } finally {
       setSaving(false);
     }
   }
+
+  const loading = calendarLoading;
+  const error = calendarError ?? predictionsError;
 
   return (
     <div className="page">
@@ -96,12 +94,18 @@ export function Pronostici() {
       </div>
 
       <div className="page-scroll" style={tab === 'pronostica' && isOpen ? { paddingBottom: 230 } : undefined}>
-        {tab === 'pronostica' ? (
+        {loading ? (
+          <p style={{ margin: '24px 0', fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center' }}>Caricamento…</p>
+        ) : error ? (
+          <p style={{ margin: '24px 0', fontSize: 13, color: '#C0304A', textAlign: 'center' }}>{error}</p>
+        ) : !currentRound ? (
+          <p style={{ margin: '24px 0', fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center' }}>Nessuna giornata disponibile al momento.</p>
+        ) : tab === 'pronostica' ? (
           <>
             <div className="card-dark" style={{ padding: '15px 17px', display: 'flex', flexDirection: 'column', gap: 11 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ font: '600 10.5px/1 var(--font-mono)', letterSpacing: '.12em' }}>SERIE A · GIORNATA {currentRound.number}</span>
-                {!lockLoading && closesLabel && (
+                <span style={{ font: '600 10.5px/1 var(--font-mono)', letterSpacing: '.12em' }}>SERIE A · GIORNATA {currentRound.roundNumber}</span>
+                {closesLabel && (
                   <span style={{ font: '600 10.5px/1 var(--font-mono)', color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>
                     {isOpen ? `CHIUDE ${closesLabel}` : 'CHIUSA'}
                   </span>
@@ -118,7 +122,7 @@ export function Pronostici() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div className="progress-track" style={{ background: 'rgba(255,255,255,.16)' }}>
-                  <div className="progress-fill" style={{ width: `${Math.round((done / total) * 100)}%` }} />
+                  <div className="progress-fill" style={{ width: `${total > 0 ? Math.round((done / total) * 100) : 0}%` }} />
                 </div>
                 <span style={{ font: '600 10px/1 var(--font-mono)', color: '#A9B4CC', whiteSpace: 'nowrap' }}>COMPLETATE</span>
               </div>
@@ -131,7 +135,7 @@ export function Pronostici() {
               </Link>
             </div>
 
-            {!isOpen && !lockLoading && (
+            {!isOpen && (
               <div className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 9 }}>
                 <LockIcon color="var(--color-text-secondary)" size={16} />
                 <span style={{ fontSize: 12.5, color: 'var(--color-text-secondary)' }}>
@@ -147,17 +151,17 @@ export function Pronostici() {
             )}
 
             <div className="section-divider-row">
-              <span className="section-label" style={{ padding: 0 }}>{currentRound.dateRangeLabel.toUpperCase()} · {currentRound.matches.length} PARTITE</span>
+              <span className="section-label" style={{ padding: 0 }}>{formatRoundDateRange(currentRound.matches).toUpperCase()} · {currentRound.matches.length} PARTITE</span>
               <span className="section-divider-row__line" />
             </div>
             {currentRound.matches.map((m) => (
               <MatchCard
-                key={m.id}
+                key={m.matchId}
                 match={m}
-                draft={drafts[m.id] ?? { home: '', away: '' }}
+                draft={drafts[m.matchId] ?? { home: '', away: '' }}
                 editable={isOpen}
-                onChangeHome={(v) => setDraft(m.id, 'home', v)}
-                onChangeAway={(v) => setDraft(m.id, 'away', v)}
+                onChangeHome={(v) => setDraft(m.matchId, 'home', v)}
+                onChangeAway={(v) => setDraft(m.matchId, 'away', v)}
               />
             ))}
 
@@ -198,103 +202,114 @@ export function Pronostici() {
             )}
           </>
         ) : (
-          <>
-            {roundsWithPredictions.map((round) => {
-              if (round.status === 'upcoming') {
-                const roundDone = round.matches.filter((m) => m.myPrediction).length;
-                return (
-                  <div key={round.number} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div className="section-divider-row">
-                      <span className="section-divider-row__line" />
-                      <span className="section-label" style={{ padding: 0 }}>GIORNATA IN CORSO</span>
-                      <span className="section-divider-row__line" />
-                    </div>
-                    <div className="card-dark" style={{ padding: '15px 17px', display: 'flex', flexDirection: 'column', gap: 10, cursor: 'pointer' }} onClick={() => setTab('pronostica')}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                        <span style={{ font: '600 10px/1 var(--font-mono)', letterSpacing: '.12em' }}>GIORNATA {round.number} · PROGRAMMATA</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-                        <span style={{ fontSize: 11.5, color: '#A9B4CC' }}>{round.dateRangeLabel} · {round.matches.length} partite</span>
-                        <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15, color: 'var(--color-accent)', background: 'rgba(255,255,255,.08)', borderRadius: 9, padding: '8px 10px' }}>
-                          {roundDone}/{round.matches.length}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              if (round.status === 'played-unverified') {
-                return (
-                  <div key={round.number} className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: 16 }}>Giornata {round.number}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>
-                        {round.dateRangeLabel} · risultati non disponibili
-                        {round.missingMatches ? ` (${round.matches.length}/${round.matches.length + round.missingMatches} partite note)` : ''}
-                      </span>
-                    </div>
-                  </div>
-                );
-              }
-
-              const expanded = expandedRound === round.number;
-              return (
-                <div key={round.number} className="card" style={{ overflow: 'hidden', border: expanded ? '1px solid var(--color-primary)' : undefined }}>
-                  <div
-                    style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
-                    onClick={() => setExpandedRound((r) => (r === round.number ? null : round.number))}
-                  >
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: 16 }}>Giornata {round.number}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>
-                        {round.dateRangeLabel} · risultati finali
-                        {round.fantasyDemo ? ` · ${round.fantasyDemo.points}pt (media ${round.fantasyDemo.average}pt)` : ''}
-                      </span>
-                    </div>
-                    <ChevronRightIcon color="var(--color-text-secondary)" />
-                  </div>
-
-                  {expanded && (
-                    <div style={{ borderTop: '1px solid var(--color-border)', padding: '12px 16px 14px', display: 'flex', flexDirection: 'column', gap: 9, background: '#FBFCFE' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, font: '600 9px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>
-                        <span>PARTITA</span>
-                        <span style={{ textAlign: 'right' }}>TUO</span>
-                        <span style={{ textAlign: 'right' }}>PT</span>
-                      </div>
-                      {round.matches.map((m) => {
-                        const pts = fantasyPointsForMatch(m);
-                        return (
-                          <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--color-bg)' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                              <span style={{ fontSize: 12.5 }}>{m.home} — {m.away}</span>
-                              <span style={{ font: '400 9.5px/1 var(--font-mono)', color: 'var(--color-text-secondary)' }}>{m.homeScore}-{m.awayScore}</span>
-                            </div>
-                            <span style={{ textAlign: 'right', fontFamily: 'var(--font-heading)', fontSize: 13 }}>{m.myPrediction ?? '—'}</span>
-                            <span style={{ textAlign: 'right', fontFamily: 'var(--font-heading)', fontSize: 13, color: pts === 3 ? 'var(--color-text-primary)' : pts === 1 ? 'var(--color-text-secondary)' : pts === 0 ? '#C0304A' : 'var(--color-text-secondary)' }}>
-                              {pts ?? '—'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            <div className="section-divider-row">
-              <span className="section-divider-row__line" />
-              <span className="section-label" style={{ padding: 0 }}>IN ARRIVO</span>
-              <span className="section-divider-row__line" />
-            </div>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center', padding: '4px 0' }}>
-              Calendario dalla giornata {SCHEDULE_COMPLETE_THROUGH + 1} in arrivo.
-            </p>
-          </>
+          <CalendarioTab
+            rounds={rounds}
+            predictionsMap={predictionsMap}
+            expandedRound={expandedRound}
+            onToggleRound={(n) => setExpandedRound((r) => (r === n ? null : n))}
+            onGoToPronostica={() => setTab('pronostica')}
+          />
         )}
       </div>
     </div>
+  );
+}
+
+function CalendarioTab({
+  rounds,
+  predictionsMap,
+  expandedRound,
+  onToggleRound,
+  onGoToPronostica,
+}: {
+  rounds: RoundSummary[];
+  predictionsMap: Record<string, MyPrediction>;
+  expandedRound: number | null;
+  onToggleRound: (roundNumber: number) => void;
+  onGoToPronostica: () => void;
+}) {
+  return (
+    <>
+      {rounds.map((round) => {
+        if (round.status === 'corrente') {
+          const roundDone = round.matches.filter((m) => predictionsMap[m.matchId]).length;
+          return (
+            <div key={round.roundNumber} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="section-divider-row">
+                <span className="section-divider-row__line" />
+                <span className="section-label" style={{ padding: 0 }}>GIORNATA IN CORSO</span>
+                <span className="section-divider-row__line" />
+              </div>
+              <div className="card-dark" style={{ padding: '15px 17px', display: 'flex', flexDirection: 'column', gap: 10, cursor: 'pointer' }} onClick={onGoToPronostica}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ font: '600 10px/1 var(--font-mono)', letterSpacing: '.12em' }}>GIORNATA {round.roundNumber} · PROGRAMMATA</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ fontSize: 11.5, color: '#A9B4CC' }}>{formatRoundDateRange(round.matches)} · {round.matches.length} partite</span>
+                  <span style={{ fontFamily: 'var(--font-heading)', fontSize: 15, color: 'var(--color-accent)', background: 'rgba(255,255,255,.08)', borderRadius: 9, padding: '8px 10px' }}>
+                    {roundDone}/{round.matches.length}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (round.status === 'futuro') {
+          return (
+            <div key={round.roundNumber} className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <span style={{ fontFamily: 'var(--font-heading)', fontSize: 16 }}>Giornata {round.roundNumber}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>{formatRoundDateRange(round.matches)} · {round.matches.length} partite</span>
+              </div>
+            </div>
+          );
+        }
+
+        // 'giocato'
+        const expanded = expandedRound === round.roundNumber;
+        return (
+          <div key={round.roundNumber} className="card" style={{ overflow: 'hidden', border: expanded ? '1px solid var(--color-primary)' : undefined }}>
+            <div
+              style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
+              onClick={() => onToggleRound(round.roundNumber)}
+            >
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <span style={{ fontFamily: 'var(--font-heading)', fontSize: 16 }}>Giornata {round.roundNumber}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>{formatRoundDateRange(round.matches)} · risultati finali</span>
+              </div>
+              <ChevronRightIcon color="var(--color-text-secondary)" />
+            </div>
+
+            {expanded && (
+              <div style={{ borderTop: '1px solid var(--color-border)', padding: '12px 16px 14px', display: 'flex', flexDirection: 'column', gap: 9, background: '#FBFCFE' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, font: '600 9px/1 var(--font-mono)', letterSpacing: '.1em', color: 'var(--color-text-secondary)' }}>
+                  <span>PARTITA</span>
+                  <span style={{ textAlign: 'right' }}>TUO</span>
+                  <span style={{ textAlign: 'right' }}>PT</span>
+                </div>
+                {round.matches.map((m) => {
+                  const pred = predictionsMap[m.matchId];
+                  const pts = pred?.points ?? null;
+                  return (
+                    <div key={m.matchId} style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--color-bg)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                        <span style={{ fontSize: 12.5 }}>{m.home} — {m.away}</span>
+                        <span style={{ font: '400 9.5px/1 var(--font-mono)', color: 'var(--color-text-secondary)' }}>{m.homeGoals}-{m.awayGoals}</span>
+                      </div>
+                      <span style={{ textAlign: 'right', fontFamily: 'var(--font-heading)', fontSize: 13 }}>{pred ? `${pred.homeGoals}-${pred.awayGoals}` : '—'}</span>
+                      <span style={{ textAlign: 'right', fontFamily: 'var(--font-heading)', fontSize: 13, color: pts === 3 ? 'var(--color-text-primary)' : pts === 1 ? 'var(--color-text-secondary)' : pts === 0 ? '#C0304A' : 'var(--color-text-secondary)' }}>
+                        {pts ?? '—'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -358,7 +373,7 @@ function MatchCard({
   onChangeHome,
   onChangeAway,
 }: {
-  match: RealMatch;
+  match: CalendarMatch;
   draft: Draft;
   editable: boolean;
   onChangeHome: (v: string) => void;

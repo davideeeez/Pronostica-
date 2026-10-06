@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { fetchRoundLock } from '../lib/predictions';
 
 const DAYS = ['DOM', 'LUN', 'MAR', 'MER', 'GIO', 'VEN', 'SAB'];
 
@@ -25,40 +24,26 @@ function formatCloses(d: Date): string {
   return `${DAYS[d.getDay()]} ${hh}:${mm}`;
 }
 
-/** Stato di chiusura di un turno, letto da `rounds.locks_at` (mai scritto a mano). */
-export function useRoundLock(roundNumber: number) {
-  const [locksAt, setLocksAt] = useState<Date | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * Countdown live verso `locksAt` (preso dal calendario, già caricato da
+ * `useCalendar` — nessuna query propria: eviterebbe di duplicare quella che
+ * la vista `calendar` fa già in un'unica interrogazione).
+ */
+export function useRoundLock(locksAt: string | null) {
   const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchRoundLock(roundNumber)
-      .then((lock) => {
-        if (cancelled) return;
-        setLocksAt(lock ? new Date(lock.locksAt) : null);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [roundNumber]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  const isOpen = locksAt !== null && now < locksAt;
+  const locksAtDate = locksAt ? new Date(locksAt) : null;
+  const isOpen = locksAtDate !== null && now < locksAtDate;
 
   return {
-    loading,
-    locksAt,
+    locksAt: locksAtDate,
     isOpen,
-    countdownLabel: locksAt ? formatCountdown(locksAt.getTime() - now.getTime()) : null,
-    closesLabel: locksAt ? formatCloses(locksAt) : null,
+    countdownLabel: locksAtDate ? formatCountdown(locksAtDate.getTime() - now.getTime()) : null,
+    closesLabel: locksAtDate ? formatCloses(locksAtDate) : null,
   };
 }

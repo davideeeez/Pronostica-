@@ -9,12 +9,15 @@ nel frattempo si gioca solo in leghe.
 
 ## Risultati reali — mai inventati
 
-- Nessun risultato (punteggio di una partita) entra nel database senza
-  **due fonti indipendenti**, con nomi e URL reali.
-- Prima di qualunque insert di risultati: mostra la tabella completa
-  (giornata, partita, risultato, fonte) e aspetta conferma esplicita.
-- Se si trova una sola fonte per una partita: fermarsi e dirlo, non inserire
-  e non inventare il dato mancante.
+- **Non cercare dati di calendario/risultati sul web.** Orari, squadre e
+  risultati si inseriscono solo da tabelle fornite direttamente dall'utente
+  (lui è la fonte): mai da una ricerca web autonoma, nemmeno per "verificare"
+  o completare un dato mancante.
+- Prima di qualunque insert in `matches`/`rounds`: mostra un riepilogo
+  completo (giornata, partita, orario/risultato) di cosa si sta per inserire.
+- Se un dato manca o è ambiguo nella tabella fornita: fermarsi e dirlo,
+  chiedere il dato corretto, non inventarlo e non colmare il buco con una
+  ricerca web.
 
 ## Sicurezza database — checklist obbligatoria dopo ogni modifica allo schema
 

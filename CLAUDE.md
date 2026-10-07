@@ -21,6 +21,10 @@ nel frattempo si gioca solo in leghe.
 - Ogni policy RLS è scoperta `TO authenticated` (mai `PUBLIC`/`anon`) — anche
   dati apparentemente innocui come il calendario partite (`matches`/`rounds`)
   sono riservati agli utenti loggati, non pubblici.
+- Nelle condizioni delle policy usare sempre `(select auth.uid())`, mai
+  `auth.uid()` diretto: la forma diretta viene rivalutata riga per riga
+  (avviso performance `auth_rls_initplan`), quella tra parentesi una sola
+  volta per query.
 - Dopo aver creato/modificato una policy: revocare anche i privilegi di
   tabella (`GRANT`) ad `anon` se non già assenti — altrimenti `anon` ottiene
   zero righe per via della RLS ma nessun errore di permesso netto
@@ -40,6 +44,17 @@ nel frattempo si gioca solo in leghe.
   da loggati (es. scrivere risultati, modificare `matches`/`rounds`).
 - Mostrare sempre l'output reale dei test (errori del database), non solo
   "funziona"/"ok".
+- I test di sicurezza vivono in `supabase/tests/security.sql` (script SQL
+  rilanciabile, transazioni annullate con `rollback`). Dopo ogni migrazione
+  che tocca schema/policy: aggiornarlo se serve, rilanciarlo per intero e
+  mostrare l'output — non riscrivere i test da zero a mano ogni volta.
+- **Mai usare `DELETE` nello strumento MCP `execute_sql`** (nemmeno dentro
+  una transazione poi annullata con `rollback`): il tool lo tratta come
+  statement distruttivo e aspetta una conferma interattiva che in questa
+  sessione non arriva mai, causando un timeout di 60s indistinguibile da un
+  vero blocco. Stesso problema già noto per `DROP TRIGGER`/`DROP FUNCTION`.
+  Per pulizia dati nei test: appoggiarsi solo al `rollback` finale, mai a un
+  `DELETE` di mezzo.
 
 ## Regole di modello dati
 
@@ -62,8 +77,8 @@ nel frattempo si gioca solo in leghe.
   query per tutte le giornate, non una per partita.
 - "Turno corrente" ha un'unica definizione, in `current_round_number()`: il
   più basso con almeno una partita senza risultato, altrimenti l'ultimo.
-  Riusarla sempre (vista `calendar`, frontend, future leghe), mai ridefinirla
-  altrove.
+  Riusarla sempre (vista `calendar`, frontend, future leghe, SQL) — **mai
+  ridefinire la logica altrove**, nemmeno in una nuova query o vista.
 - `rounds.locks_at` è calcolato in automatico da un trigger su `matches`
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").

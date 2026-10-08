@@ -86,6 +86,20 @@ nel frattempo si gioca solo in leghe.
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").
 
+## Debito tecnico aperto (nessuna azione finché non richiesto)
+
+- `is_league_member`/`is_league_owner` sono helper interni per le policy RLS
+  (leghe), ma essendo `SECURITY DEFINER` con `EXECUTE` concesso ad
+  `authenticated` risultano chiamabili direttamente via RPC — non è una falla
+  (restituiscono solo un booleano sul proprio `auth.uid()`), ma vanno spostati
+  in uno schema non esposto da PostgREST, lasciando le policy libere di
+  richiamarli comunque.
+- `leagues.created_by` e `leagues.start_round` non hanno un indice a supporto
+  della foreign key — da aggiungere se la tabella cresce.
+- Nessun limite di leghe per utente né di membri per lega (scelta di
+  prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
+  nascondimento — da chiudere prima di apertura pubblica.
+
 ## Prima di ogni modifica non banale
 
 - Riepilogo del piano (tabelle, policy, file toccati) e attesa di conferma

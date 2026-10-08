@@ -915,13 +915,17 @@ begin
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
   perform public.join_public_league(v_league_f3);
-  reset role;
 
+  -- lettura come A (authenticated), non come amministratore: altrimenti si
+  -- bypassa la RLS sottostante (league_leaderboard è security invoker) e il
+  -- test non dimostra cosa vede davvero un utente normale.
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
   for r in select * from public.league_leaderboard(v_league_f3) order by rank, user_id loop
     v_rows_f3 := v_rows_f3 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
   end loop;
+  reset role;
   insert into test_results(test, expected, actual, passed)
-    values ('P6f scenario3 (B senza pronostici): A>0 rank1, B=0 rank2', 'A=3 rank1, B=0 rank2', v_rows_f3, v_rows_f3 like '%3 pt%rank 1%' and v_rows_f3 like '%0 pt%rank 2%');
+    values ('P6f scenario3 (B senza pronostici): A>0 rank1, B=0 rank2 — letto da A/authenticated', 'A=3 rank1, B=0 rank2', v_rows_f3, v_rows_f3 like '%3 pt%rank 1%' and v_rows_f3 like '%0 pt%rank 2%');
 
   -- admin: B pronostica la STESSA partita, stesso risultato esatto di A -> pareggio vero
   insert into public.predictions (user_id, match_id, home_goals, away_goals)
@@ -940,14 +944,19 @@ begin
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
   perform public.join_public_league(v_league_f1);
-  reset role;
 
-  for r in select * from public.league_leaderboard(v_league_f1) order by rank, user_id loop
-    v_rows_f1 := v_rows_f1 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
-  end loop;
-  insert into test_results(test, expected, actual, passed)
-    values ('P6f scenario1 (pareggio vero, turno 4 escluso)', 'A e B: 3 pt, rank 1 entrambi', v_rows_f1,
-            v_rows_f1 like '%3 pt%rank 1%' and (select count(distinct rank) from public.league_leaderboard(v_league_f1)) = 1);
+  -- lettura come B (authenticated), per verificare anche questo lato
+  declare v_distinct_ranks int;
+  begin
+    for r in select * from public.league_leaderboard(v_league_f1) order by rank, user_id loop
+      v_rows_f1 := v_rows_f1 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
+    end loop;
+    select count(distinct rank) into v_distinct_ranks from public.league_leaderboard(v_league_f1);
+    reset role;
+    insert into test_results(test, expected, actual, passed)
+      values ('P6f scenario1 (pareggio vero, turno 4 escluso) — letto da B/authenticated', 'A e B: 3 pt, rank 1 entrambi', v_rows_f1,
+              v_rows_f1 like '%3 pt%rank 1%' and v_distinct_ranks = 1);
+  end;
 
   -- admin: A aggiunge un secondo esatto (altra partita), B aggiunge 3 esiti
   -- corretti (pareggio diverso, partite diverse) -> stesso totale, A avanti
@@ -967,16 +976,25 @@ begin
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
   perform public.join_public_league(v_league_f2);
-  reset role;
 
-  for r in select * from public.league_leaderboard(v_league_f2) order by rank, user_id loop
-    v_rows_f2 := v_rows_f2 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
-  end loop;
-  insert into test_results(test, expected, actual, passed)
-    values ('P6f scenario2 (stesso totale, A avanti per esatti)', 'stesso totale, rank diversi (A=1,B=2)', v_rows_f2,
-            (select count(distinct total_points) from public.league_leaderboard(v_league_f2)) = 1
-            and (select rank from public.league_leaderboard(v_league_f2) where user_id = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4') = 1
-            and (select rank from public.league_leaderboard(v_league_f2) where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6') = 2);
+  -- lettura come A (authenticated)
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  declare
+    v_distinct_points int;
+    v_rank_a int;
+    v_rank_b int;
+  begin
+    for r in select * from public.league_leaderboard(v_league_f2) order by rank, user_id loop
+      v_rows_f2 := v_rows_f2 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
+    end loop;
+    select count(distinct total_points) into v_distinct_points from public.league_leaderboard(v_league_f2);
+    select rank into v_rank_a from public.league_leaderboard(v_league_f2) where user_id = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+    select rank into v_rank_b from public.league_leaderboard(v_league_f2) where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+    reset role;
+    insert into test_results(test, expected, actual, passed)
+      values ('P6f scenario2 (stesso totale, A avanti per esatti) — letto da A/authenticated', 'stesso totale, rank diversi (A=1,B=2)', v_rows_f2,
+              v_distinct_points = 1 and v_rank_a = 1 and v_rank_b = 2);
+  end;
 end $$;
 
 -- P6h: anon rifiutato su tutte le tabelle e su tutte le 12 funzioni (9 +

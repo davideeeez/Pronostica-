@@ -292,6 +292,86 @@ exception when raise_exception then
 end $$;
 
 
+-- ========== FASE 4: leghe (parziale — richiede la migrazione applicata) ==========
+--
+-- Solo i tre test chiesti per adesso (n, o, p): i test a-m (schema/RLS/owner)
+-- si aggiungono dopo che la migrazione 20261007234129 è stata applicata e
+-- confermata, non prima.
+
+-- P5n: generate_invite_code produce sempre 8 caratteri dall'alfabeto senza
+-- ambigui, su un campione ampio (regressione del bug ::int vs floor()).
+do $$
+declare
+  i int;
+  v_code text;
+  v_bad_length int := 0;
+  v_bad_chars int := 0;
+begin
+  for i in 1..5000 loop
+    v_code := public.generate_invite_code();
+    if char_length(v_code) <> 8 then
+      v_bad_length := v_bad_length + 1;
+    end if;
+    if v_code !~ '^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$' then
+      v_bad_chars := v_bad_chars + 1;
+    end if;
+  end loop;
+  insert into test_results(test, expected, actual, passed)
+    values ('P5n generate_invite_code: 5000 codici validi', '0 anomalie lunghezza, 0 anomalie caratteri',
+            v_bad_length::text || ' lunghezza, ' || v_bad_chars::text || ' caratteri',
+            v_bad_length = 0 and v_bad_chars = 0);
+end $$;
+
+-- P5o: codice in minuscolo e con spazi entra comunque, e non viene contato
+-- come tentativo falliente in league_join_attempts.
+do $$
+declare
+  v_code text;
+  v_league_id uuid;
+  v_result text;
+  v_attempts_before int;
+  v_attempts_after int;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_league_id := public.create_league('Test lega minuscole', 'private', public.current_round_number());
+  reset role;
+
+  select code into v_code from public.league_invites where league_id = v_league_id;
+  select count(*) into v_attempts_before from public.league_join_attempts where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  v_result := public.join_private_league('  ' || lower(v_code) || '  ');
+  reset role;
+
+  select count(*) into v_attempts_after from public.league_join_attempts where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5o codice minuscolo/spazi entra senza contare come fallito', 'ok, 0 nuovi tentativi falliti',
+            v_result || ', ' || (v_attempts_after - v_attempts_before)::text || ' nuovi tentativi',
+            v_result = 'ok' and v_attempts_after = v_attempts_before);
+end $$;
+
+-- P5p: join_public_league su una lega privata -> 'not_found' (non 'private':
+-- non deve rivelare che la lega esiste/è privata a chi non ha il codice).
+do $$
+declare
+  v_league_id uuid;
+  v_result text;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_league_id := public.create_league('Test lega privata per p', 'private', public.current_round_number());
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  v_result := public.join_public_league(v_league_id);
+  reset role;
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5p join_public_league su lega privata', 'not_found', v_result, v_result = 'not_found');
+end $$;
+
+
 -- ========== Riepilogo ==========
 
 select seq, test, expected, actual, passed from test_results order by seq;

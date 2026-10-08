@@ -132,7 +132,9 @@ returns text
 language sql
 set search_path = public
 as $$
-  select string_agg(substr(alphabet, (random() * length(alphabet))::int + 1, 1), '')
+  -- floor(), non ::int: il cast arrotonda (es. random()=0.999... * 31 = 31.0
+  -- troncato male), facendo saltare un carattere circa 1 volta su 8.
+  select string_agg(substr(alphabet, floor(random() * length(alphabet))::int + 1, 1), '')
   from (select 'ABCDEFGHJKMNPQRSTUVWXYZ23456789' as alphabet) a,
        generate_series(1, 8);
 $$;
@@ -192,6 +194,8 @@ $$;
 -- 'ok' | 'already_member' | 'invalid' (codice errato e limite tentativi
 -- restituiscono lo stesso esito 'invalid': nessuna eccezione, altrimenti il
 -- rollback automatico annullerebbe anche l'insert del tentativo falliente.
+-- Il codice è normalizzato con upper(trim(...)) prima del confronto: minuscole
+-- o spazi incollati per errore non devono contare come tentativo falliente.
 create or replace function public.join_private_league(p_code text)
 returns text
 language plpgsql
@@ -215,7 +219,7 @@ begin
     return 'invalid';
   end if;
 
-  select league_id into v_league_id from public.league_invites where code = p_code;
+  select league_id into v_league_id from public.league_invites where code = upper(trim(p_code));
 
   if v_league_id is null then
     insert into public.league_join_attempts (user_id) values (v_uid);
@@ -232,7 +236,7 @@ end;
 $$;
 
 create or replace function public.join_public_league(p_league_id uuid)
-returns text -- 'ok' | 'already_member' | 'private' | 'not_found'
+returns text -- 'ok' | 'already_member' | 'not_found' (anche per una lega privata: non si rivela la sua esistenza/visibilità a chi tenta di unirsi senza codice)
 language plpgsql
 security definer
 set search_path = public
@@ -251,7 +255,7 @@ begin
     return 'not_found';
   end if;
   if v_visibility <> 'public' then
-    return 'private';
+    return 'not_found';
   end if;
   if exists (select 1 from public.league_members where league_id = p_league_id and user_id = v_uid) then
     return 'already_member';

@@ -98,7 +98,10 @@ begin
     values ('P2c update dopo chiusura', v_before || ' (invariato)', v_after, v_before = v_after);
 end $$;
 
--- P2d: A non legge il pronostico di B su turno aperto, lo legge su turno chiuso
+-- P2d: A non legge il pronostico di B su turno aperto. Su turno chiuso,
+-- AGGIORNATO per la Fase 4: visibile solo se A e B condividono una lega
+-- (prima era visibile a chiunque autenticato) -- qui A e B non condividono
+-- ancora nulla, quindi deve essere invisibile anche a turno chiuso.
 do $$
 declare
   v_open_visible boolean;
@@ -118,7 +121,31 @@ begin
   insert into test_results(test, expected, actual, passed)
     values ('P2d B su turno aperto invisibile ad A', 'false', v_open_visible::text, v_open_visible = false);
   insert into test_results(test, expected, actual, passed)
-    values ('P2d B su turno chiuso visibile ad A', 'true', v_closed_visible::text, v_closed_visible = true);
+    values ('P2d B su turno chiuso invisibile ad A (nessuna lega in comune)', 'false', v_closed_visible::text, v_closed_visible = false);
+end $$;
+
+-- P2d-bis: stesso scenario, ma A e B condividono una lega pubblica -> ora
+-- il pronostico di B su turno chiuso diventa visibile ad A.
+do $$
+declare
+  v_league_id uuid;
+  v_closed_visible boolean;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_league_id := public.create_league('Test lega condivisa P2d-bis', 'public', public.current_round_number());
+
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  perform public.join_public_league(v_league_id);
+
+  -- torna al sub di A prima di verificare cosa VEDE A: senza questo reset
+  -- la select girerebbe ancora come B, che vede sempre le proprie righe.
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  select exists(select 1 from public.predictions where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6' and match_id = 'r1-udinese-como') into v_closed_visible;
+  reset role;
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P2d-bis B su turno chiuso visibile ad A (lega in comune)', 'true', v_closed_visible::text, v_closed_visible = true);
 end $$;
 
 -- P2e: A non può scrivere un pronostico a nome di B
@@ -292,11 +319,195 @@ exception when raise_exception then
 end $$;
 
 
--- ========== FASE 4: leghe (parziale — richiede la migrazione applicata) ==========
---
--- Solo i tre test chiesti per adesso (n, o, p): i test a-m (schema/RLS/owner)
--- si aggiungono dopo che la migrazione 20261007234129 è stata applicata e
--- confermata, non prima.
+-- ========== FASE 4: leghe (migrazione 20261007234129 applicata) ==========
+
+-- P5i: 10 codici sbagliati di fila -> tutti rifiutati, poi anche il codice
+-- giusto rifiutato (rate limit attivo); fuori dalla finestra (simulata
+-- spostando indietro i tentativi con UPDATE, non DELETE) il codice giusto entra.
+do $$
+declare
+  v_league_id uuid;
+  v_code text;
+  i int;
+  v_result text;
+  v_rejected_wrong int := 0;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_league_id := public.create_league('Test lega rate limit', 'private', public.current_round_number());
+  reset role;
+
+  select code into v_code from public.league_invites where league_id = v_league_id;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  for i in 1..10 loop
+    v_result := public.join_private_league('XXXXXXX' || i::text);
+    if v_result = 'invalid' then
+      v_rejected_wrong := v_rejected_wrong + 1;
+    end if;
+  end loop;
+
+  -- 11esimo tentativo, codice giusto ma ancora dentro la finestra
+  v_result := public.join_private_league(v_code);
+  reset role;
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5i 10 codici sbagliati rifiutati', '10', v_rejected_wrong::text, v_rejected_wrong = 10);
+  insert into test_results(test, expected, actual, passed)
+    values ('P5i codice giusto rifiutato dentro la finestra', 'invalid', v_result, v_result = 'invalid');
+
+  update public.league_join_attempts set attempted_at = now() - interval '11 minutes'
+  where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  v_result := public.join_private_league(v_code);
+  reset role;
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5i codice giusto entra fuori dalla finestra', 'ok', v_result, v_result = 'ok');
+end $$;
+
+-- P5j: list_public_leagues non restituisce leghe private né colonne di codice
+do $$
+declare
+  v_private_id uuid;
+  v_public_id uuid;
+  v_private_leaked boolean;
+  v_public_found boolean;
+  v_cols text;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_private_id := public.create_league('Test privata per j', 'private', public.current_round_number());
+  v_public_id := public.create_league('Test pubblica per j', 'public', public.current_round_number());
+
+  select exists(select 1 from public.list_public_leagues() where id = v_private_id) into v_private_leaked;
+  select exists(select 1 from public.list_public_leagues() where id = v_public_id) into v_public_found;
+  reset role;
+
+  select array_to_string(proargnames, ',') into v_cols from pg_proc where proname = 'list_public_leagues';
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5j list_public_leagues non espone la privata', 'false', v_private_leaked::text, v_private_leaked = false);
+  insert into test_results(test, expected, actual, passed)
+    values ('P5j list_public_leagues include la pubblica', 'true', v_public_found::text, v_public_found = true);
+  insert into test_results(test, expected, actual, passed)
+    values ('P5j list_public_leagues nessuna colonna codice', 'nessun "code"', v_cols, v_cols !~* 'code');
+end $$;
+
+-- P5k: entrare due volte nella stessa lega (pubblica e privata) -> esito
+-- chiaro, nessuna riga duplicata in league_members.
+do $$
+declare
+  v_pub_id uuid;
+  v_priv_id uuid;
+  v_code text;
+  v_result1 text;
+  v_result2 text;
+  v_count int;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_pub_id := public.create_league('Test pubblica per k', 'public', public.current_round_number());
+  v_priv_id := public.create_league('Test privata per k', 'private', public.current_round_number());
+  reset role;
+
+  select code into v_code from public.league_invites where league_id = v_priv_id;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  v_result1 := public.join_public_league(v_pub_id);
+  v_result2 := public.join_public_league(v_pub_id);
+  reset role;
+
+  select count(*) into v_count from public.league_members where league_id = v_pub_id and user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5k join_public_league due volte: esiti', 'ok, already_member', v_result1 || ', ' || v_result2, v_result1 = 'ok' and v_result2 = 'already_member');
+  insert into test_results(test, expected, actual, passed)
+    values ('P5k join_public_league due volte: nessun duplicato', '1', v_count::text, v_count = 1);
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  v_result1 := public.join_private_league(v_code);
+  v_result2 := public.join_private_league(v_code);
+  reset role;
+
+  select count(*) into v_count from public.league_members where league_id = v_priv_id and user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+
+  insert into test_results(test, expected, actual, passed)
+    values ('P5k join_private_league due volte: esiti', 'ok, already_member', v_result1 || ', ' || v_result2, v_result1 = 'ok' and v_result2 = 'already_member');
+  insert into test_results(test, expected, actual, passed)
+    values ('P5k join_private_league due volte: nessun duplicato', '1', v_count::text, v_count = 1);
+end $$;
+
+-- P5l: league_join_attempts non leggibile né scrivibile da authenticated o anon
+do $$
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  perform count(*) from public.league_join_attempts;
+  insert into test_results(test, expected, actual, passed)
+    values ('P5l authenticated select league_join_attempts', 'rifiutato', 'NON rifiutato (BUG)', false);
+exception when insufficient_privilege then
+  insert into test_results(test, expected, actual, passed)
+    values ('P5l authenticated select league_join_attempts', 'rifiutato', 'rifiutato: ' || sqlerrm, true);
+end $$;
+reset role;
+
+do $$
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  insert into public.league_join_attempts (user_id) values ('560f6bd4-6070-4f6a-a78e-676cb4b8c7c4');
+  insert into test_results(test, expected, actual, passed)
+    values ('P5l authenticated insert league_join_attempts', 'rifiutato', 'NON rifiutato (BUG)', false);
+exception when insufficient_privilege then
+  insert into test_results(test, expected, actual, passed)
+    values ('P5l authenticated insert league_join_attempts', 'rifiutato', 'rifiutato: ' || sqlerrm, true);
+end $$;
+reset role;
+
+do $$
+begin
+  set local role anon;
+  perform count(*) from public.league_join_attempts;
+  insert into test_results(test, expected, actual, passed)
+    values ('P5l anon select league_join_attempts', 'rifiutato', 'NON rifiutato (BUG)', false);
+exception when insufficient_privilege then
+  insert into test_results(test, expected, actual, passed)
+    values ('P5l anon select league_join_attempts', 'rifiutato', 'rifiutato: ' || sqlerrm, true);
+end $$;
+reset role;
+
+-- P5m: start_round nel passato o inesistente -> create_league rifiutata
+do $$
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  perform public.create_league('Test start_round passato', 'public', 1);
+  insert into test_results(test, expected, actual, passed)
+    values ('P5m start_round nel passato', 'rifiutato', 'NON rifiutato (BUG)', false);
+exception when raise_exception then
+  insert into test_results(test, expected, actual, passed)
+    values ('P5m start_round nel passato', 'rifiutato', 'rifiutato: ' || sqlerrm, true);
+end $$;
+reset role;
+
+do $$
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  perform public.create_league('Test start_round inesistente', 'public', 999);
+  insert into test_results(test, expected, actual, passed)
+    values ('P5m start_round inesistente', 'rifiutato', 'NON rifiutato (BUG)', false);
+exception when raise_exception then
+  insert into test_results(test, expected, actual, passed)
+    values ('P5m start_round inesistente', 'rifiutato', 'rifiutato: ' || sqlerrm, true);
+end $$;
+reset role;
 
 -- P5n: generate_invite_code produce sempre 8 caratteri dall'alfabeto senza
 -- ambigui, su un campione ampio (regressione del bug ::int vs floor()).

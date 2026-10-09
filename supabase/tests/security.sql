@@ -598,7 +598,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega join_private_league league_id q', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega join_private_league id q', 'private', public.current_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_league_id;

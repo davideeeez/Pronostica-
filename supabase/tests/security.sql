@@ -342,14 +342,14 @@ begin
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
   for i in 1..10 loop
-    v_result := public.join_private_league('XXXXXXX' || i::text);
+    select outcome into v_result from public.join_private_league('XXXXXXX' || i::text);
     if v_result = 'invalid' then
       v_rejected_wrong := v_rejected_wrong + 1;
     end if;
   end loop;
 
   -- 11esimo tentativo, codice giusto ma ancora dentro la finestra
-  v_result := public.join_private_league(v_code);
+  select outcome into v_result from public.join_private_league(v_code);
   reset role;
 
   insert into test_results(test, expected, actual, passed)
@@ -362,7 +362,7 @@ begin
 
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
-  v_result := public.join_private_league(v_code);
+  select outcome into v_result from public.join_private_league(v_code);
   reset role;
 
   insert into test_results(test, expected, actual, passed)
@@ -431,8 +431,8 @@ begin
 
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
-  v_result1 := public.join_private_league(v_code);
-  v_result2 := public.join_private_league(v_code);
+  select outcome into v_result1 from public.join_private_league(v_code);
+  select outcome into v_result2 from public.join_private_league(v_code);
   reset role;
 
   select count(*) into v_count from public.league_members where league_id = v_priv_id and user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
@@ -553,7 +553,7 @@ begin
 
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
-  v_result := public.join_private_league('  ' || lower(v_code) || '  ');
+  select outcome into v_result from public.join_private_league('  ' || lower(v_code) || '  ');
   reset role;
 
   select count(*) into v_attempts_after from public.league_join_attempts where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
@@ -580,6 +580,43 @@ begin
 
   insert into test_results(test, expected, actual, passed)
     values ('P5p join_public_league su lega privata', 'not_found', v_result, v_result = 'not_found');
+end $$;
+
+-- P5q: join_private_league ritorna anche league_id (migrazione
+-- 20261009120000) — NULL su 'invalid', valorizzato e corretto su 'ok' e
+-- 'already_member'.
+do $$
+declare
+  v_league_id uuid;
+  v_code text;
+  v_outcome_invalid text;
+  v_league_id_invalid uuid;
+  v_outcome_ok text;
+  v_league_id_ok uuid;
+  v_outcome_again text;
+  v_league_id_again uuid;
+begin
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  v_league_id := public.create_league('Test lega join_private_league league_id q', 'private', public.current_round_number());
+  reset role;
+
+  select code into v_code from public.league_invites where league_id = v_league_id;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  select outcome, league_id into v_outcome_invalid, v_league_id_invalid from public.join_private_league('CODICESBAGLIATOQ');
+  select outcome, league_id into v_outcome_ok, v_league_id_ok from public.join_private_league(v_code);
+  select outcome, league_id into v_outcome_again, v_league_id_again from public.join_private_league(v_code);
+  reset role;
+
+  insert into test_results(test, expected, actual, passed) values
+    ('P5q join_private_league invalid: outcome', 'invalid', v_outcome_invalid, v_outcome_invalid = 'invalid'),
+    ('P5q join_private_league invalid: league_id NULL', 'NULL', coalesce(v_league_id_invalid::text,'NULL'), v_league_id_invalid is null),
+    ('P5q join_private_league ok: outcome', 'ok', v_outcome_ok, v_outcome_ok = 'ok'),
+    ('P5q join_private_league ok: league_id corretto', v_league_id::text, coalesce(v_league_id_ok::text,'NULL'), v_league_id_ok = v_league_id),
+    ('P5q join_private_league already_member: outcome', 'already_member', v_outcome_again, v_outcome_again = 'already_member'),
+    ('P5q join_private_league already_member: league_id corretto', v_league_id::text, coalesce(v_league_id_again::text,'NULL'), v_league_id_again = v_league_id);
 end $$;
 
 
@@ -636,7 +673,7 @@ begin
 
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
-  v_join_result := public.join_private_league(v_code);
+  select outcome into v_join_result from public.join_private_league(v_code);
   select exists(select 1 from public.league_invites where league_id = v_league_id) into v_invite_visible;
   v_remove_result := public.remove_league_member(v_league_id, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4');
   v_regen_result := public.regenerate_invite_code(v_league_id);
@@ -746,8 +783,8 @@ begin
 
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
-  v_result_bad := public.join_private_league('CODICESBAGLIATOX');
-  v_result_ok := public.join_private_league(v_code);
+  select outcome into v_result_bad from public.join_private_league('CODICESBAGLIATOX');
+  select outcome into v_result_ok from public.join_private_league(v_code);
   reset role;
 
   insert into test_results(test, expected, actual, passed) values
@@ -846,7 +883,7 @@ begin
 
   set local role authenticated;
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
-  v_old_code_join_result := public.join_private_league(v_code_old);
+  select outcome into v_old_code_join_result from public.join_private_league(v_code_old);
   reset role;
 
   set local role authenticated;

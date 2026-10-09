@@ -5,20 +5,23 @@ import { ChevronRightIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useCalendar } from '../hooks/useCalendar';
 import { useRoundLock } from '../hooks/useRoundLock';
-import { fetchMyPredictions, fetchMyScoreStats, type MyScoreStats } from '../lib/predictions';
-import { leagues } from '../data/mock';
+import { useMyLeagues } from '../hooks/useMyLeagues';
+import { fetchMyPredictions } from '../lib/predictions';
+import { fetchLeagueLeaderboard, type LeaderboardRow } from '../lib/leagues';
 
 export function Home() {
   const { profile, session } = useAuth();
-  const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
+  const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
   const [done, setDone] = useState(0);
-  const [myStats, setMyStats] = useState<MyScoreStats | null>(null);
+  const [myRow, setMyRow] = useState<LeaderboardRow | null>(null);
+  const [leagueStatsError, setLeagueStatsError] = useState<string | null>(null);
   const { loading, error, currentRound } = useCalendar();
+  const { leagues: myLeagues, loading: leaguesLoading } = useMyLeagues(session?.user.id);
   const { countdownLabel } = useRoundLock(currentRound?.locksAt ?? null);
   const total = currentRound?.matches.length ?? 0;
   const remaining = total - done;
   const progressPct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const hasLeagues = leagues.some((l) => !l.isGeneral);
+  const hasLeagues = myLeagues.length > 0;
 
   useEffect(() => {
     if (!session) return;
@@ -26,8 +29,27 @@ export function Home() {
       if (!currentRound) return;
       setDone(currentRound.matches.filter((m) => map[m.matchId]).length);
     });
-    fetchMyScoreStats(session.user.id).then(setMyStats);
   }, [session, currentRound]);
+
+  useEffect(() => {
+    if (!selectedLeagueId || !session) {
+      setMyRow(null);
+      return;
+    }
+    let cancelled = false;
+    setLeagueStatsError(null);
+    fetchLeagueLeaderboard(selectedLeagueId)
+      .then((rows) => {
+        if (cancelled) return;
+        setMyRow(rows.find((r) => r.userId === session.user.id) ?? null);
+      })
+      .catch((err) => {
+        if (!cancelled) setLeagueStatsError(err instanceof Error ? err.message : 'Errore sconosciuto.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLeagueId, session]);
 
   if (loading) return <div className="page" />;
   if (error || !currentRound) {
@@ -42,7 +64,7 @@ export function Home() {
 
   return (
     <div className="page">
-      <AppHeader selectedLeagueId={selectedLeagueId} onSelectLeague={setSelectedLeagueId} />
+      <AppHeader onSelectionChange={setSelectedLeagueId} />
 
       <div className="page-scroll">
         <div className="card-dark" style={{ padding: '20px 20px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -81,7 +103,7 @@ export function Home() {
           </div>
         </div>
 
-        {hasLeagues ? (
+        {leaguesLoading ? null : hasLeagues ? (
           <Link to="/menu/profilo" className="card" style={{ padding: '15px 16px 16px', display: 'flex', flexDirection: 'column', gap: 13, textDecoration: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <ShieldCrest size={38} pattern={profile?.crest_pattern ?? 'star'} />
@@ -99,12 +121,13 @@ export function Home() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8 }}>
               <div className="stat-tile">
                 <span className="stat-tile__label">PUNTI</span>
-                <span className="stat-tile__value">{(myStats?.totalPoints ?? 0).toLocaleString('it-IT')}</span>
+                <span className="stat-tile__value">
+                  {leagueStatsError ? '—' : (myRow?.totalPoints ?? 0).toLocaleString('it-IT')}
+                </span>
               </div>
               <div className="stat-tile">
                 <span className="stat-tile__label">POSIZIONE</span>
-                {/* Classifica generale sospesa fino a gennaio: nessuna posizione da mostrare. */}
-                <span className="stat-tile__value">—</span>
+                <span className="stat-tile__value">{leagueStatsError ? '—' : myRow?.rank ?? '—'}</span>
               </div>
               <div className="stat-tile">
                 <span className="stat-tile__label">VARIAZIONE</span>

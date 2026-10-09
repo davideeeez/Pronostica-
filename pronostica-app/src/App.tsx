@@ -11,6 +11,7 @@ import { Menu } from './pages/Menu';
 import { Profilo } from './pages/menu/Profilo';
 import { Leghe } from './pages/menu/Leghe';
 import { LegheCrea } from './pages/menu/LegheCrea';
+import { LegheCodice } from './pages/menu/LegheCodice';
 import { LegheEsplora } from './pages/menu/LegheEsplora';
 import { LegaDettaglio } from './pages/menu/LegaDettaglio';
 import { Regolamento } from './pages/menu/Regolamento';
@@ -32,6 +33,7 @@ function Gate() {
         <Route path="/menu/profilo" element={<Profilo />} />
         <Route path="/menu/leghe" element={<Leghe />} />
         <Route path="/menu/leghe/crea" element={<LegheCrea />} />
+        <Route path="/menu/leghe/codice" element={<LegheCodice />} />
         <Route path="/menu/leghe/esplora" element={<LegheEsplora />} />
         <Route path="/menu/leghe/:id" element={<LegaDettaglio />} />
         <Route path="/menu/regolamento" element={<Regolamento />} />

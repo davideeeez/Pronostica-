@@ -15,7 +15,6 @@ type Draft = { home: string; away: string };
 export function Pronostici() {
   const location = useLocation();
   const { session } = useAuth();
-  const [selectedLeagueId, setSelectedLeagueId] = useState('gen');
   const [tab, setTab] = useState<Tab>((location.state as { tab?: Tab } | null)?.tab ?? 'pronostica');
   const { loading: calendarLoading, error: calendarError, rounds, currentRound, lastPlayedRound } = useCalendar();
   const [expandedRound, setExpandedRound] = useState<number | null>(null);
@@ -86,7 +85,7 @@ export function Pronostici() {
   return (
     <div className="page">
       <div style={{ flex: 'none', padding: '6px 18px 12px', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--color-bg)' }}>
-        <AppHeader selectedLeagueId={selectedLeagueId} onSelectLeague={setSelectedLeagueId} />
+        <AppHeader />
         <div style={{ display: 'flex', gap: 6, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 14, padding: 4, margin: '0 18px' }}>
           <TabButton active={tab === 'pronostica'} onClick={() => setTab('pronostica')} label="Pronostica!" />
           <TabButton active={tab === 'calendario'} onClick={() => setTab('calendario')} label="Calendario" />

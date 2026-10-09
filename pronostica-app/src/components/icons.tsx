@@ -277,3 +277,12 @@ export function MinusIcon({ color = '#101A33', size = 16 }: IconProps) {
     </svg>
   );
 }
+
+export function CopyIcon({ color = '#101A33', size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="6.6" y="6.6" width="9.4" height="9.4" rx="1.8" />
+      <path d="M11.8 6.6V3.8a1.8 1.8 0 0 0-1.8-1.8H3.8A1.8 1.8 0 0 0 2 3.8v6.2a1.8 1.8 0 0 0 1.8 1.8h2.8" />
+    </svg>
+  );
+}

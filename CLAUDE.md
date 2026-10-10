@@ -100,6 +100,60 @@ nel frattempo si gioca solo in leghe.
   prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
   nascondimento — da chiudere prima di apertura pubblica.
 
+## Leghe a scontri diretti — DA COSTRUIRE (non implementare ora)
+
+MODALITÀ E CREAZIONE
+- Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta
+  non si cambia più.
+- Primo rilascio: scontri diretti solo in leghe PRIVATE.
+- La lega ha un turno di partenza, come oggi.
+
+ISCRIZIONI E USCITE
+- Si entra fino al blocco (locks_at) del turno di partenza; dopo, nessun ingresso.
+- Prima del blocco, uscita e rimozione funzionano come oggi.
+- Dopo il blocco nessuno può uscire né essere rimosso; il creatore può solo
+  eliminare la lega.
+- Al blocco del turno di partenza, se i membri sono dispari la lega diventa
+  automaticamente a classifica. Creatore e membri vedono un avviso nei giorni
+  prima ("con numero dispari passa a classifica").
+
+CALENDARIO
+- All'italiana, tutti contro tutti, dal turno di partenza al turno 38.
+- Ordine degli accoppiamenti fissato dal database con algoritmo deterministico
+  (metodo del cerchio) e salvato alla partenza; non dipende dal frontend e non
+  cambia più.
+- Dopo l'ultimo ciclo completo il calendario riparte dal primo turno: alcuni si
+  incontrano una volta in più, è voluto (come nel fantacalcio).
+
+ESITO DELLO SCONTRO
+- Si confrontano i punti di turno (3 esatto, 1 esito, 0 sbagliato).
+- Più punti: 3 in classifica; stessi punti: 1 a testa; meno punti: 0.
+- Chi non pronostica un turno ha 0 punti di turno. L'avversario vince solo se
+  fa almeno 1 punto; se fa 0 è pareggio (1 a testa).
+- Le partite non pronosticate valgono 0 punti; le altre contano normalmente.
+- Un turno resta "in sospeso" finché tutte le sue partite hanno un risultato
+  (recuperi inclusi). I turni successivi si calcolano comunque, indipendenti
+  da quello in sospeso.
+
+CLASSIFICA FINALE (ordine dei criteri)
+1. Punti scontri diretti
+2. Punti totali dei pronostici (solo turni dalla partenza)
+3. Pronostico vincitrice corretto
+4. Pronostico capocannoniere corretto
+5. Più risultati esatti
+6. Più esiti corretti
+7. Se persiste, premio diviso equamente
+- Nella lega a scontri diretti la tabella mostra come colonne principali
+  "Pt scontri" e "Pt totali".
+
+DIPENDENZE E ORDINE DI LAVORO
+- I criteri 3 e 4 richiedono i pronostici stagionali (non ancora esistenti):
+  gli scontri diretti non si possono chiudere correttamente prima.
+- Calcolo di scontri e classifica solo nel database.
+- Ordine: (1) test lega base con due account, (2) pronostici stagionali,
+  (3) schema e funzioni scontri diretti con test di sicurezza prima del
+  frontend, (4) frontend.
+
 ## Prima di ogni modifica non banale
 
 - Riepilogo del piano (tabelle, policy, file toccati) e attesa di conferma

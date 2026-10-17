@@ -57,6 +57,16 @@ nel frattempo si gioca solo in leghe.
   rilanciabile, transazioni annullate con `rollback`). Dopo ogni migrazione
   che tocca schema/policy: aggiornarlo se serve, rilanciarlo per intero e
   mostrare l'output — non riscrivere i test da zero a mano ogni volta.
+- I test non si appoggiano ai dati reali, che cambiano (utenti, leghe,
+  pronostici, risultati, turni): niente turni scritti a mano (`r6-…`, "turno
+  5") né utenti reali dove il test deve controllare cosa vede o ottiene un
+  utente. Un turno aperto o precedente si ricava dal DB nel test stesso; utenti
+  e dati servono sintetici, creati dentro la transazione annullata
+  (`auth.users` + `profiles` con id fissi `00000000-0000-4000-8000-0000000000XX`,
+  risultati finti sulle partite, kickoff anticipati per simulare il blocco) e
+  spariscono col `rollback` finale. Gli utenti reali A e B restano solo dove
+  serve verificare l'accesso con identità note (policy, funzioni, privilegi).
+  Dopo ogni lancio verificare che il DB reale sia rimasto invariato.
 - **Mai usare `DELETE` nello strumento MCP `execute_sql`** (nemmeno dentro
   una transazione poi annullata con `rollback`): il tool lo tratta come
   statement distruttivo e aspetta una conferma interattiva che in questa

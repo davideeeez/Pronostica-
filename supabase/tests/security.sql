@@ -106,15 +106,24 @@ do $$
 declare
   v_open_visible boolean;
   v_closed_visible boolean;
+  v_open_match text;
 begin
+  -- partita di un turno ancora APERTO (locks_at futuro): mai un id scritto a
+  -- mano, il calendario avanza. Non e' la definizione di "turno corrente"
+  -- (che puo' essere gia' chiuso): e' solo la ricerca di un turno aperto.
+  select m.id into v_open_match
+  from public.matches m join public.rounds r using (round_number)
+  where r.locks_at > now()
+  order by m.round_number, m.kickoff limit 1;
+
   insert into public.predictions (user_id, match_id, home_goals, away_goals) values
-    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r6-inter-parma', 1, 1),
+    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', v_open_match, 1, 1),
     ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r1-udinese-como', 1, 1);
 
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
 
-  select exists(select 1 from public.predictions where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6' and match_id = 'r6-inter-parma') into v_open_visible;
+  select exists(select 1 from public.predictions where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6' and match_id = v_open_match) into v_open_visible;
   select exists(select 1 from public.predictions where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6' and match_id = 'r1-udinese-como') into v_closed_visible;
   reset role;
 
@@ -150,11 +159,18 @@ end $$;
 
 -- P2e: A non può scrivere un pronostico a nome di B
 do $$
+declare
+  v_open_match text;
 begin
+  select m.id into v_open_match
+  from public.matches m join public.rounds r using (round_number)
+  where r.locks_at > now()
+  order by m.round_number, m.kickoff limit 1;
+
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
   insert into public.predictions (user_id, match_id, home_goals, away_goals)
-  values ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r6-inter-parma', 3, 0);
+  values ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', v_open_match, 3, 0);
   insert into test_results(test, expected, actual, passed)
     values ('P2e A scrive a nome di B', 'rifiutato', 'NON rifiutato (BUG)', false);
 exception when insufficient_privilege then
@@ -293,16 +309,20 @@ exception when insufficient_privilege then
 end $$;
 reset role;
 
--- locks_at: modifica libera prima della chiusura (round 6)
+-- locks_at: modifica libera prima della chiusura (primo turno ancora aperto)
 do $$
 declare
   v_before timestamptz;
   v_after timestamptz;
+  v_round int;
+  v_match text;
 begin
-  select locks_at into v_before from public.rounds where round_number = 6;
-  update public.matches set kickoff = v_before - interval '1 hour' where id = 'r6-genoa-fiorentina';
-  select locks_at into v_after from public.rounds where round_number = 6;
-  update public.matches set kickoff = v_before where id = 'r6-genoa-fiorentina';
+  select r.round_number, r.locks_at into v_round, v_before
+  from public.rounds r where r.locks_at > now() order by r.round_number limit 1;
+  select id into v_match from public.matches where round_number = v_round order by kickoff limit 1;
+  update public.matches set kickoff = v_before - interval '1 hour' where id = v_match;
+  select locks_at into v_after from public.rounds where round_number = v_round;
+  update public.matches set kickoff = v_before where id = v_match;
   insert into test_results(test, expected, actual, passed)
     values ('P4 locks_at si aggiorna prima della chiusura', 'aggiornato', case when v_after = v_before - interval '1 hour' then 'aggiornato' else 'NON aggiornato (BUG)' end, v_after = v_before - interval '1 hour');
 end $$;
@@ -910,7 +930,7 @@ end $$;
 -- P6f: league_leaderboard, start_round=5, SOLO 2 utenti reali (A, B) — il
 -- terzo scenario "3 utenti" della Fase 3 non si rifà qui (già verificato).
 -- Le leghe qui sono create con un INSERT diretto da amministratore (non con
--- create_league): il turno corrente è avanzato a 6, quindi create_league
+-- create_league): il turno corrente è avanzato oltre il 5, quindi create_league
 -- rifiuterebbe correttamente start_round=5 come "nel passato" (stesso
 -- comportamento già verificato in P5m) — qui l'oggetto del test è
 -- league_leaderboard, non quella validazione, quindi la bypassiamo di
@@ -1126,7 +1146,13 @@ end $$;
 
 -- ========== Riepilogo ==========
 
-select seq, test, expected, actual, passed from test_results order by seq;
-select count(*) filter (where not passed) as test_falliti, count(*) as test_totali from test_results;
+-- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):
+-- totali + elenco dei falliti + tutti i test in un unico json.
+select
+  count(*) as test_totali,
+  count(*) filter (where not passed) as test_falliti,
+  coalesce(jsonb_agg(jsonb_build_object('seq', seq, 'test', test, 'expected', expected, 'actual', actual)) filter (where not passed), '[]'::jsonb) as falliti,
+  jsonb_agg(jsonb_build_object('seq', seq, 'test', test, 'passed', passed, 'actual', actual) order by seq) as tutti
+from test_results;
 
 rollback;

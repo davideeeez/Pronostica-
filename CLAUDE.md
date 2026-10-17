@@ -18,6 +18,12 @@ nel frattempo si gioca solo in leghe.
 - Se un dato manca o è ambiguo nella tabella fornita: fermarsi e dirlo,
   chiedere il dato corretto, non inventarlo e non colmare il buco con una
   ricerca web.
+- La regola delle "due fonti con URL" vale solo per dati trovati
+  autonomamente sul web. Se Davide fornisce uno screenshot o una tabella,
+  quella è la fonte e basta, nessuna fonte aggiuntiva da cercare o citare.
+  Resta comunque obbligatorio mostrargli la tabella (giornata, partita,
+  orario/risultato) prima di qualunque insert/update e aspettare la sua
+  conferma esplicita.
 
 ## Sicurezza database — checklist obbligatoria dopo ogni modifica allo schema
 

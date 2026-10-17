@@ -40,6 +40,24 @@ insert into public.profiles (id, username, crest_pattern) values
   ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'utente_test_b', 'leaf')
 on conflict (id) do update set username = excluded.username;
 
+-- Utente sintetico C: esiste solo dentro questa transazione (annullata dal
+-- rollback finale), non appartiene a nessuna lega. Serve dove il test richiede
+-- "due utenti senza leghe in comune": gli utenti reali stanno ormai tutti nella
+-- stessa lega, e senza DELETE non si possono sfilare dai membri.
+--   C = 00000000-0000-4000-8000-0000000000c1
+insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000c1');
+insert into public.profiles (id, username, crest_pattern)
+values ('00000000-0000-4000-8000-0000000000c1', 'utente_test_c', 'leaf');
+
+-- D ed E: coppia sintetica per P6f (classifica di lega), isolata dai dati reali.
+--   D = 00000000-0000-4000-8000-0000000000d1   E = 00000000-0000-4000-8000-0000000000e1
+insert into auth.users (id) values
+  ('00000000-0000-4000-8000-0000000000d1'),
+  ('00000000-0000-4000-8000-0000000000e1');
+insert into public.profiles (id, username, crest_pattern) values
+  ('00000000-0000-4000-8000-0000000000d1', 'utente_test_d', 'star'),
+  ('00000000-0000-4000-8000-0000000000e1', 'utente_test_e', 'leaf');
+
 
 -- ========== FASE 2: predictions ==========
 
@@ -116,21 +134,24 @@ begin
   where r.locks_at > now()
   order by m.round_number, m.kickoff limit 1;
 
+  -- B (serve a P2d-bis, che lo mette in lega con A) e C (nessuna lega)
   insert into public.predictions (user_id, match_id, home_goals, away_goals) values
     ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', v_open_match, 1, 1),
-    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r1-udinese-como', 1, 1);
+    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r1-udinese-como', 1, 1),
+    ('00000000-0000-4000-8000-0000000000c1', v_open_match, 1, 1),
+    ('00000000-0000-4000-8000-0000000000c1', 'r1-udinese-como', 1, 1);
 
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
 
   select exists(select 1 from public.predictions where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6' and match_id = v_open_match) into v_open_visible;
-  select exists(select 1 from public.predictions where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6' and match_id = 'r1-udinese-como') into v_closed_visible;
+  select exists(select 1 from public.predictions where user_id = '00000000-0000-4000-8000-0000000000c1' and match_id = 'r1-udinese-como') into v_closed_visible;
   reset role;
 
   insert into test_results(test, expected, actual, passed)
     values ('P2d B su turno aperto invisibile ad A', 'false', v_open_visible::text, v_open_visible = false);
   insert into test_results(test, expected, actual, passed)
-    values ('P2d B su turno chiuso invisibile ad A (nessuna lega in comune)', 'false', v_closed_visible::text, v_closed_visible = false);
+    values ('P2d C su turno chiuso invisibile ad A (nessuna lega in comune)', 'false', v_closed_visible::text, v_closed_visible = false);
 end $$;
 
 -- P2d-bis: stesso scenario, ma A e B condividono una lega pubblica -> ora
@@ -927,30 +948,35 @@ begin
     ('P6e dopo delete_league: 0 righe league_invites', '0', v_invites_after::text, v_invites_after = 0);
 end $$;
 
--- P6f: league_leaderboard, start_round=5, SOLO 2 utenti reali (A, B) — il
--- terzo scenario "3 utenti" della Fase 3 non si rifà qui (già verificato).
--- Le leghe qui sono create con un INSERT diretto da amministratore (non con
--- create_league): il turno corrente è avanzato oltre il 5, quindi create_league
--- rifiuterebbe correttamente start_round=5 come "nel passato" (stesso
--- comportamento già verificato in P5m) — qui l'oggetto del test è
--- league_leaderboard, non quella validazione, quindi la bypassiamo di
--- proposito scrivendo noi la riga (A resta owner, B entra via funzione).
+-- P6f: league_leaderboard con start_round = primo turno APERTO, utenti
+-- sintetici D ed E (creati in cima, vivono solo in questa transazione) e
+-- risultati FINTI scritti sulle partite del turno aperto (annullati dal
+-- rollback finale). Cosi' i dati reali (pronostici veri di A/B, risultati
+-- veri, leghe vere) non entrano mai nei punti attesi, e il test non si rompe
+-- quando qualcuno pronostica per davvero il turno aperto. Se non ci sono turni
+-- aperti (fine stagione) si usa l'ultimo turno: con utenti sintetici e
+-- risultati finti la scelta e' indifferente.
+-- Le leghe sono create con un INSERT diretto da amministratore (non con
+-- create_league): qui l'oggetto del test e' league_leaderboard, non la
+-- validazione dello start_round (gia' coperta da P5m). D resta owner, E entra
+-- via funzione.
 -- I pronostici sono globali (non per lega, vedi CLAUDE.md): i tre scenari
--- condividono lo stesso stato cumulativo, quindi l'ordine conta ed è:
---   1) scenario 3 (B senza pronostici) va fatto PRIMA che B riceva punti;
---   2) poi scenario 2 aggiunge solo i pronostici di B (A riusa il suo
---      pronostico già inserito per lo scenario 3);
---   3) scenario 1 (pareggio) si ottiene facendo pronosticare a B la STESSA
---      partita con lo STESSO risultato di A, cosi' il pareggio e' vero
---      (stesso totale E stessa composizione esatti/esiti, non solo stesso
---      totale) — altrimenti rank() li separerebbe lo stesso per il
---      criterio "esatti" come nello scenario 2.
--- I numeri finali sono quindi cumulativi e reali, non quelli illustrativi
--- del messaggio originale (che assumeva leghe isolate): il MECCANISMO
--- (pareggio vero, tie-break per esatti, 0 punti per chi non pronostica) è
--- comunque esattamente quello richiesto.
+-- condividono lo stesso stato cumulativo, quindi l'ordine conta ed e':
+--   1) scenario 3 (E senza pronostici) va fatto PRIMA che E riceva punti;
+--   2) scenario 1 (pareggio) si ottiene facendo pronosticare a E la STESSA
+--      partita con lo STESSO risultato di D, cosi' il pareggio e' vero
+--      (stesso totale E stessa composizione esatti/esiti);
+--   3) scenario 2 aggiunge un secondo esatto a D e tre esiti a E: stesso
+--      totale, D avanti per piu' esatti.
+-- Il turno precedente a start_round riceve pronostici con punti DIVERSI per D
+-- ed E: non deve contare (verifica del filtro start_round).
+-- Risultati finti: m1 2-0, m2 3-0, m3/m4/m5 1-1 (turno aperto); p1 5-3
+-- (turno precedente).
 do $$
 declare
+  v_start int;
+  v_prev int;
+  m1 text; m2 text; m3 text; m4 text; m5 text; p1 text;
   v_league_f3 uuid;
   v_league_f1 uuid;
   v_league_f2 uuid;
@@ -959,50 +985,79 @@ declare
   v_rows_f1 text := '';
   v_rows_f2 text := '';
 begin
-  -- admin: A pronostica esatto su r5-juventus-atalanta (2-0) -> 3 punti
-  insert into public.predictions (user_id, match_id, home_goals, away_goals)
-  values ('560f6bd4-6070-4f6a-a78e-676cb4b8c7c4', 'r5-juventus-atalanta', 2, 0);
+  select coalesce(
+           (select min(round_number) from public.rounds where locks_at > now()),
+           (select max(round_number) from public.rounds)
+         ) into v_start;
+  v_prev := v_start - 1;
 
-  -- scenario 3: lega f3 (insert diretto, start_round=5 storico), B si unisce ma non pronostica ancora nulla
+  select (array_agg(id order by kickoff, id))[1], (array_agg(id order by kickoff, id))[2],
+         (array_agg(id order by kickoff, id))[3], (array_agg(id order by kickoff, id))[4],
+         (array_agg(id order by kickoff, id))[5]
+    into m1, m2, m3, m4, m5
+  from public.matches where round_number = v_start;
+  select id into p1 from public.matches where round_number = v_prev order by kickoff, id limit 1;
+
+  if m5 is null or p1 is null then
+    raise exception 'P6f: servono >=5 partite nel turno % e >=1 nel turno %', v_start, v_prev;
+  end if;
+
+  -- Simula il blocco del turno scelto: i risultati esistono solo dopo il
+  -- blocco e la RLS nasconde i pronostici altrui finche' il turno e' aperto
+  -- (comportamento corretto, vedi P2d). Anticipare i kickoff e' consentito dal
+  -- trigger (rifiuta solo di spostarli piu' avanti) e locks_at si ricalcola.
+  update public.matches set kickoff = kickoff - interval '60 days' where round_number = v_start;
+
+  -- risultati finti (solo in questa transazione)
+  update public.matches set home_goals = 2, away_goals = 0 where id = m1;
+  update public.matches set home_goals = 3, away_goals = 0 where id = m2;
+  update public.matches set home_goals = 1, away_goals = 1 where id in (m3, m4, m5);
+  update public.matches set home_goals = 5, away_goals = 3 where id = p1;
+
+  -- D pronostica esatto su m1 (2-0) -> 3 punti
+  insert into public.predictions (user_id, match_id, home_goals, away_goals)
+  values ('00000000-0000-4000-8000-0000000000d1', m1, 2, 0);
+
+  -- scenario 3: lega f3 (insert diretto, start_round = turno aperto), E si unisce ma non pronostica nulla
   insert into public.leagues (name, visibility, start_round, created_by)
-  values ('Test leaderboard f3 zero punti', 'public', 5, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4')
+  values ('Test leaderboard f3 zero punti', 'public', v_start, '00000000-0000-4000-8000-0000000000d1')
   returning id into v_league_f3;
-  insert into public.league_members (league_id, user_id, role) values (v_league_f3, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4', 'owner');
+  insert into public.league_members (league_id, user_id, role) values (v_league_f3, '00000000-0000-4000-8000-0000000000d1', 'owner');
 
   set local role authenticated;
-  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
   perform public.join_public_league(v_league_f3);
 
-  -- lettura come A (authenticated), non come amministratore: altrimenti si
-  -- bypassa la RLS sottostante (league_leaderboard è security invoker) e il
+  -- lettura come D (authenticated), non come amministratore: altrimenti si
+  -- bypassa la RLS sottostante (league_leaderboard e' security invoker) e il
   -- test non dimostra cosa vede davvero un utente normale.
-  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
   for r in select * from public.league_leaderboard(v_league_f3) order by rank, user_id loop
     v_rows_f3 := v_rows_f3 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
   end loop;
   reset role;
   insert into test_results(test, expected, actual, passed)
-    values ('P6f scenario3 (B senza pronostici): A>0 rank1, B=0 rank2 — letto da A/authenticated', 'A=3 rank1, B=0 rank2', v_rows_f3, v_rows_f3 like '%3 pt%rank 1%' and v_rows_f3 like '%0 pt%rank 2%');
+    values ('P6f scenario3 (E senza pronostici): D>0 rank1, E=0 rank2 — letto da D/authenticated', 'D=3 rank1, E=0 rank2', v_rows_f3, v_rows_f3 like '%3 pt%rank 1%' and v_rows_f3 like '%0 pt%rank 2%');
 
-  -- admin: B pronostica la STESSA partita, stesso risultato esatto di A -> pareggio vero
+  -- admin: E pronostica la STESSA partita, stesso risultato esatto di D -> pareggio vero
   insert into public.predictions (user_id, match_id, home_goals, away_goals)
-  values ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r5-juventus-atalanta', 2, 0);
+  values ('00000000-0000-4000-8000-0000000000e1', m1, 2, 0);
 
-  -- admin: turno 4 con punti DIVERSI per A e B, non deve contare (start_round=5)
+  -- admin: turno precedente con punti DIVERSI per D ed E, non deve contare (start_round = turno aperto)
   insert into public.predictions (user_id, match_id, home_goals, away_goals) values
-    ('560f6bd4-6070-4f6a-a78e-676cb4b8c7c4', 'r4-inter-udinese', 5, 3),
-    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r4-inter-udinese', 0, 0);
+    ('00000000-0000-4000-8000-0000000000d1', p1, 5, 3),
+    ('00000000-0000-4000-8000-0000000000e1', p1, 0, 0);
 
   insert into public.leagues (name, visibility, start_round, created_by)
-  values ('Test leaderboard f1 pareggio', 'public', 5, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4')
+  values ('Test leaderboard f1 pareggio', 'public', v_start, '00000000-0000-4000-8000-0000000000d1')
   returning id into v_league_f1;
-  insert into public.league_members (league_id, user_id, role) values (v_league_f1, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4', 'owner');
+  insert into public.league_members (league_id, user_id, role) values (v_league_f1, '00000000-0000-4000-8000-0000000000d1', 'owner');
 
   set local role authenticated;
-  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
   perform public.join_public_league(v_league_f1);
 
-  -- lettura come B (authenticated), per verificare anche questo lato
+  -- lettura come E (authenticated), per verificare anche questo lato
   declare v_distinct_ranks int;
   begin
     for r in select * from public.league_leaderboard(v_league_f1) order by rank, user_id loop
@@ -1011,46 +1066,46 @@ begin
     select count(distinct rank) into v_distinct_ranks from public.league_leaderboard(v_league_f1);
     reset role;
     insert into test_results(test, expected, actual, passed)
-      values ('P6f scenario1 (pareggio vero, turno 4 escluso) — letto da B/authenticated', 'A e B: 3 pt, rank 1 entrambi', v_rows_f1,
+      values ('P6f scenario1 (pareggio vero, turno precedente escluso) — letto da E/authenticated', 'D ed E: 3 pt, rank 1 entrambi', v_rows_f1,
               v_rows_f1 like '%3 pt%rank 1%' and v_distinct_ranks = 1);
   end;
 
-  -- admin: A aggiunge un secondo esatto (altra partita), B aggiunge 3 esiti
-  -- corretti (pareggio diverso, partite diverse) -> stesso totale, A avanti
-  -- per più esatti.
+  -- admin: D aggiunge un secondo esatto (altra partita), E aggiunge 3 esiti
+  -- corretti (pareggio diverso, partite diverse) -> stesso totale, D avanti
+  -- per piu' esatti.
   insert into public.predictions (user_id, match_id, home_goals, away_goals)
-  values ('560f6bd4-6070-4f6a-a78e-676cb4b8c7c4', 'r5-milan-lecce', 3, 0);
+  values ('00000000-0000-4000-8000-0000000000d1', m2, 3, 0);
   insert into public.predictions (user_id, match_id, home_goals, away_goals) values
-    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r5-bologna-torino', 2, 2),
-    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r5-fiorentina-napoli', 0, 0),
-    ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r5-roma-inter', 3, 3);
+    ('00000000-0000-4000-8000-0000000000e1', m3, 2, 2),
+    ('00000000-0000-4000-8000-0000000000e1', m4, 0, 0),
+    ('00000000-0000-4000-8000-0000000000e1', m5, 3, 3);
 
   insert into public.leagues (name, visibility, start_round, created_by)
-  values ('Test leaderboard f2 tiebreak esatti', 'public', 5, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4')
+  values ('Test leaderboard f2 tiebreak esatti', 'public', v_start, '00000000-0000-4000-8000-0000000000d1')
   returning id into v_league_f2;
-  insert into public.league_members (league_id, user_id, role) values (v_league_f2, '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4', 'owner');
+  insert into public.league_members (league_id, user_id, role) values (v_league_f2, '00000000-0000-4000-8000-0000000000d1', 'owner');
 
   set local role authenticated;
-  set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
   perform public.join_public_league(v_league_f2);
 
-  -- lettura come A (authenticated)
-  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  -- lettura come D (authenticated)
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
   declare
     v_distinct_points int;
-    v_rank_a int;
-    v_rank_b int;
+    v_rank_d int;
+    v_rank_e int;
   begin
     for r in select * from public.league_leaderboard(v_league_f2) order by rank, user_id loop
       v_rows_f2 := v_rows_f2 || format('%s: %s pt, %s esatti, %s esiti, rank %s | ', r.username, r.total_points, r.exact_results, r.correct_outcomes, r.rank);
     end loop;
     select count(distinct total_points) into v_distinct_points from public.league_leaderboard(v_league_f2);
-    select rank into v_rank_a from public.league_leaderboard(v_league_f2) where user_id = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-    select rank into v_rank_b from public.league_leaderboard(v_league_f2) where user_id = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
+    select rank into v_rank_d from public.league_leaderboard(v_league_f2) where user_id = '00000000-0000-4000-8000-0000000000d1';
+    select rank into v_rank_e from public.league_leaderboard(v_league_f2) where user_id = '00000000-0000-4000-8000-0000000000e1';
     reset role;
     insert into test_results(test, expected, actual, passed)
-      values ('P6f scenario2 (stesso totale, A avanti per esatti) — letto da A/authenticated', 'stesso totale, rank diversi (A=1,B=2)', v_rows_f2,
-              v_distinct_points = 1 and v_rank_a = 1 and v_rank_b = 2);
+      values ('P6f scenario2 (stesso totale, D avanti per esatti) — letto da D/authenticated', 'stesso totale, rank diversi (D=1,E=2)', v_rows_f2,
+              v_distinct_points = 1 and v_rank_d = 1 and v_rank_e = 2);
   end;
 end $$;
 

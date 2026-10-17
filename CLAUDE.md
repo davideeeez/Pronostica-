@@ -160,6 +160,40 @@ DIPENDENZE E ORDINE DI LAVORO
   (3) schema e funzioni scontri diretti con test di sicurezza prima del
   frontend, (4) frontend.
 
+## Pronostici stagionali — DA COSTRUIRE (non implementare ora)
+
+COSA SI PRONOSTICA
+- Due pronostici per lega: squadra vincitrice della Serie A e capocannoniere
+  della Serie A.
+
+PUNTI E QUOTE
+- I punti vengono da una tabella quote: vincitrice 15-100, capocannoniere
+  20-100 (formula logaritmica, arrotondata al multiplo di 5). Il capocannoniere
+  ha anche l'opzione "Altro" = 100 punti.
+- La tabella quote è versionata: ogni aggiornamento è una nuova versione con
+  un turno di validità; le versioni vecchie non si modificano mai. Davide manda
+  le quote aggiornate a mano (con data e fonte): mai cercate sul web.
+
+BLOCCO E MODIFICHE
+- Il pronostico è per lega e si blocca al blocco della lega. Valgono le quote
+  della versione valida a quel momento, congelate per quella lega.
+- Dopo la giornata 19 si può cambiare il pronostico; vale la quota aggiornata
+  a quel momento.
+
+ESITO
+- Capocannoniere a pari gol: il pronostico vale per tutti i giocatori in testa
+  secondo il marcatore ufficiale della Lega. I risultati li inserisce Davide,
+  mai cercati sul web.
+
+SICUREZZA E CALCOLO
+- Punti calcolati solo nel database. Stesse regole di sicurezza di
+  `predictions`: RLS `TO authenticated`, lettura dei pronostici altrui solo
+  dopo il blocco e solo tra membri della stessa lega. Test di sicurezza prima
+  del frontend.
+
+ORDINE DI LAVORO
+- Dopo il test a due account della lega base.
+
 ## Prima di ogni modifica non banale
 
 - Riepilogo del piano (tabelle, policy, file toccati) e attesa di conferma

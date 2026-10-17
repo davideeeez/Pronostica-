@@ -155,8 +155,12 @@ export function LegheCrea() {
           <span className="section-label">TURNO DI PARTENZA</span>
           {calendarLoading ? (
             <p style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>Caricamento calendario…</p>
-          ) : calendarError || minRound === null || maxRound === null ? (
-            <p style={{ color: '#C0304A', fontSize: 13 }}>{calendarError ?? 'Calendario non disponibile.'}</p>
+          ) : calendarError ? (
+            <p style={{ color: '#C0304A', fontSize: 13 }}>{calendarError}</p>
+          ) : minRound === null || maxRound === null ? (
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, lineHeight: 1.4 }}>
+              In attesa del prossimo turno: potrai creare una lega appena sarà aperta una giornata ai pronostici.
+            </p>
           ) : (
             <div className="card" style={{ padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 10, minHeight: 52 }}>
               <select

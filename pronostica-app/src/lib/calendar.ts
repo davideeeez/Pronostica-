@@ -1,6 +1,13 @@
 import { supabase } from './supabaseClient';
 
-export type RoundStatus = 'giocato' | 'corrente' | 'futuro';
+/**
+ * Stato del turno, deciso dal database (vista `calendar`):
+ * - giocato: tutte le partite hanno un risultato
+ * - corrente: il turno aperto ai pronostici (`open_round_number()`); uno solo, può non esserci
+ * - in_corso: turno già bloccato ma con partite senza risultato
+ * - futuro: turno non ancora aperto
+ */
+export type RoundStatus = 'giocato' | 'in_corso' | 'corrente' | 'futuro';
 
 export interface CalendarMatch {
   matchId: string;

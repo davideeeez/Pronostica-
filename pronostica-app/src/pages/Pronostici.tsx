@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, CheckIcon, InfoCircleIcon, LockIcon } from '../components/icons';
+import { WaitingNextRound } from '../components/WaitingNextRound';
 import { useAuth } from '../contexts/AuthContext';
 import { useCalendar } from '../hooks/useCalendar';
 import { useRoundLock } from '../hooks/useRoundLock';
@@ -30,11 +31,13 @@ export function Pronostici() {
     if (lastPlayedRound && expandedRound === null) setExpandedRound(lastPlayedRound.roundNumber);
   }, [lastPlayedRound, expandedRound]);
 
+  // I pronostici si caricano anche senza turno aperto: il tab Calendario li mostra per i turni giocati.
   useEffect(() => {
-    if (!session || !currentRound) return;
+    if (!session) return;
     fetchMyPredictions(session.user.id)
       .then((map) => {
         setPredictionsMap(map);
+        if (!currentRound) return;
         setDrafts((prev) => {
           const next = { ...prev };
           for (const m of currentRound.matches) {
@@ -97,9 +100,9 @@ export function Pronostici() {
           <p style={{ margin: '24px 0', fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center' }}>Caricamento…</p>
         ) : error ? (
           <p style={{ margin: '24px 0', fontSize: 13, color: '#C0304A', textAlign: 'center' }}>{error}</p>
-        ) : !currentRound ? (
-          <p style={{ margin: '24px 0', fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center' }}>Nessuna giornata disponibile al momento.</p>
-        ) : tab === 'pronostica' ? (
+        ) : tab === 'pronostica' && !currentRound ? (
+          <WaitingNextRound />
+        ) : tab === 'pronostica' && currentRound ? (
           <>
             <div className="card-dark" style={{ padding: '15px 17px', display: 'flex', flexDirection: 'column', gap: 11 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -236,7 +239,7 @@ function CalendarioTab({
             <div key={round.roundNumber} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="section-divider-row">
                 <span className="section-divider-row__line" />
-                <span className="section-label" style={{ padding: 0 }}>GIORNATA IN CORSO</span>
+                <span className="section-label" style={{ padding: 0 }}>GIORNATA APERTA</span>
                 <span className="section-divider-row__line" />
               </div>
               <div className="card-dark" style={{ padding: '15px 17px', display: 'flex', flexDirection: 'column', gap: 10, cursor: 'pointer' }} onClick={onGoToPronostica}>
@@ -265,7 +268,9 @@ function CalendarioTab({
           );
         }
 
-        // 'giocato'
+        // 'giocato' e 'in_corso' (bloccato, con partite ancora senza risultato)
+        const inProgress = round.status === 'in_corso';
+        const resultsIn = round.matches.filter((m) => m.homeGoals !== null && m.awayGoals !== null).length;
         const expanded = expandedRound === round.roundNumber;
         return (
           <div key={round.roundNumber} className="card" style={{ overflow: 'hidden', border: expanded ? '1px solid var(--color-primary)' : undefined }}>
@@ -275,7 +280,9 @@ function CalendarioTab({
             >
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
                 <span style={{ fontFamily: 'var(--font-heading)', fontSize: 16 }}>Giornata {round.roundNumber}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>{formatRoundDateRange(round.matches)} · risultati finali</span>
+                <span style={{ fontSize: 11.5, color: 'var(--color-text-secondary)' }}>
+                  {formatRoundDateRange(round.matches)} · {inProgress ? `in corso, ${resultsIn}/${round.matches.length} risultati` : 'risultati finali'}
+                </span>
               </div>
               <ChevronRightIcon color="var(--color-text-secondary)" />
             </div>
@@ -294,7 +301,7 @@ function CalendarioTab({
                     <div key={m.matchId} style={{ display: 'grid', gridTemplateColumns: '1fr 52px 34px', gap: 8, alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--color-bg)' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
                         <span style={{ fontSize: 12.5 }}>{m.home} — {m.away}</span>
-                        <span style={{ font: '400 9.5px/1 var(--font-mono)', color: 'var(--color-text-secondary)' }}>{m.homeGoals}-{m.awayGoals}</span>
+                        <span style={{ font: '400 9.5px/1 var(--font-mono)', color: 'var(--color-text-secondary)' }}>{m.homeGoals !== null && m.awayGoals !== null ? `${m.homeGoals}-${m.awayGoals}` : 'da giocare'}</span>
                       </div>
                       <span style={{ textAlign: 'right', fontFamily: 'var(--font-heading)', fontSize: 13 }}>{pred ? `${pred.homeGoals}-${pred.awayGoals}` : '—'}</span>
                       <span style={{ textAlign: 'right', fontFamily: 'var(--font-heading)', fontSize: 13, color: pts === 3 ? 'var(--color-text-primary)' : pts === 1 ? 'var(--color-text-secondary)' : pts === 0 ? '#C0304A' : 'var(--color-text-secondary)' }}>

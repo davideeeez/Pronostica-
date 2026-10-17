@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { ChevronRightIcon, ShieldCrest } from '../components/icons';
+import { WaitingNextRound } from '../components/WaitingNextRound';
 import { useAuth } from '../contexts/AuthContext';
 import { useCalendar } from '../hooks/useCalendar';
 import { useRoundLock } from '../hooks/useRoundLock';
@@ -52,12 +53,10 @@ export function Home() {
   }, [selectedLeagueId, session]);
 
   if (loading) return <div className="page" />;
-  if (error || !currentRound) {
+  if (error) {
     return (
       <div className="page" style={{ justifyContent: 'center', padding: '0 28px' }}>
-        <p style={{ margin: 0, fontSize: 13.5, textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-          {error ?? 'Nessuna giornata disponibile al momento.'}
-        </p>
+        <p style={{ margin: 0, fontSize: 13.5, textAlign: 'center', color: 'var(--color-text-secondary)' }}>{error}</p>
       </div>
     );
   }
@@ -67,6 +66,9 @@ export function Home() {
       <AppHeader onSelectionChange={setSelectedLeagueId} />
 
       <div className="page-scroll">
+        {!currentRound ? (
+          <WaitingNextRound />
+        ) : (
         <div className="card-dark" style={{ padding: '20px 20px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
             <span style={{ font: '600 10.5px/1 var(--font-mono)', letterSpacing: '.12em' }}>
@@ -102,6 +104,7 @@ export function Home() {
             </span>
           </div>
         </div>
+        )}
 
         {leaguesLoading ? null : hasLeagues ? (
           <Link to="/menu/profilo" className="card" style={{ padding: '15px 16px 16px', display: 'flex', flexDirection: 'column', gap: 13, textDecoration: 'none' }}>

@@ -75,7 +75,8 @@ nel frattempo si gioca solo in leghe.
   lato client/frontend.
 - Un pronostico di una partita è unico per utente (`unique(user_id,
   match_id)`) e vale in tutte le leghe a cui l'utente partecipa — non esiste
-  un pronostico "per lega".
+  un pronostico di partita "per lega". (I pronostici stagionali, invece, sono
+  per lega: vedi la sezione dedicata.)
 - `matches`/`rounds` sono scrivibili solo da SQL diretto (nessuna policy di
   insert/update/delete per `authenticated`/`anon`): i risultati e gli orari
   ufficiali li inserisce chi lavora al progetto, mai l'app.
@@ -84,10 +85,25 @@ nel frattempo si gioca solo in leghe.
   in `mock.ts` o altrove nel frontend). Il frontend legge dalla vista
   `calendar` (`src/lib/calendar.ts` + `src/hooks/useCalendar.ts`), una sola
   query per tutte le giornate, non una per partita.
-- "Turno corrente" ha un'unica definizione, in `current_round_number()`: il
-  più basso con almeno una partita senza risultato, altrimenti l'ultimo.
-  Riusarla sempre (vista `calendar`, frontend, future leghe, SQL) — **mai
-  ridefinire la logica altrove**, nemmeno in una nuova query o vista.
+- "Turno corrente" ha due definizioni, ciascuna in una sola funzione. Riusarle
+  sempre (vista `calendar`, frontend, leghe, SQL) — **mai ridefinire la logica
+  altrove**, nemmeno in una nuova query o vista:
+  - `current_round_number()` = primo turno non completato: il più basso con
+    almeno una partita senza risultato, altrimenti l'ultimo. Può essere già
+    chiuso ai pronostici (partite in corso, recuperi).
+  - `open_round_number()` = turno aperto ai pronostici: il più basso con
+    `locks_at` nel futuro, `NULL` se non ce n'è nessuno. È il turno su cui si
+    pronostica: Home, Pronostici, `create_league` (turno di partenza ≥ turno
+    aperto) e stato `corrente` della vista `calendar`.
+  - Stati della vista `calendar`: `giocato` (tutte le partite hanno un
+    risultato), `corrente` (= `open_round_number()`, uno solo, può non
+    esserci), `in_corso` (chiuso ma con partite senza risultato), `futuro`.
+    Il frontend gestisce l'assenza del turno corrente con uno stato "in attesa
+    del prossimo turno", non con un errore.
+  - STATO: `open_round_number()` e lo stato `in_corso` sono nella migrazione
+    `20261017120000_open_round_number.sql`, **non ancora applicata**; finché
+    non lo è, la vista `calendar` usa ancora `current_round_number()`.
+    Rimuovere questa riga all'applicazione.
 - `rounds.locks_at` è calcolato in automatico da un trigger su `matches`
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").
@@ -174,16 +190,24 @@ PUNTI E QUOTE
   un turno di validità; le versioni vecchie non si modificano mai. Davide manda
   le quote aggiornate a mano (con data e fonte): mai cercate sul web.
 
+PER PARTITA E STAGIONALI
+- I pronostici delle partite restano unici per utente e validi in tutte le
+  leghe. I pronostici stagionali sono per lega: lo stesso utente può avere
+  scelte diverse in leghe diverse.
+
 BLOCCO E MODIFICHE
-- Il pronostico è per lega e si blocca al blocco della lega. Valgono le quote
-  della versione valida a quel momento, congelate per quella lega.
-- Dopo la giornata 19 si può cambiare il pronostico; vale la quota aggiornata
-  a quel momento.
+- Il pronostico stagionale si blocca al blocco della lega.
+- Ogni pronostico stagionale salva i punti della versione quote valida quando
+  è stato fatto o cambiato (punti congelati nel pronostico, non ricalcolati
+  dalle versioni successive).
+- Dopo la giornata 19 si può cambiare il pronostico; il cambio salva i punti
+  della versione quote valida in quel momento.
 
 ESITO
 - Capocannoniere a pari gol: il pronostico vale per tutti i giocatori in testa
-  secondo il marcatore ufficiale della Lega. I risultati li inserisce Davide,
-  mai cercati sul web.
+  secondo il marcatore ufficiale della Lega. Ogni utente con un pronostico tra
+  i giocatori in testa prende i punti interi, senza divisione. I risultati li
+  inserisce Davide, mai cercati sul web.
 
 SICUREZZA E CALCOLO
 - Punti calcolati solo nel database. Stesse regole di sicurezza di

@@ -126,13 +126,13 @@ declare
   v_closed_visible boolean;
   v_open_match text;
 begin
-  -- partita di un turno ancora APERTO (locks_at futuro): mai un id scritto a
-  -- mano, il calendario avanza. Non e' la definizione di "turno corrente"
-  -- (che puo' essere gia' chiuso): e' solo la ricerca di un turno aperto.
+  -- partita di un turno ancora APERTO: mai un id scritto a mano, il calendario
+  -- avanza. Il turno aperto e' open_round_number() (non current_round_number(),
+  -- che puo' essere gia' chiuso).
   select m.id into v_open_match
-  from public.matches m join public.rounds r using (round_number)
-  where r.locks_at > now()
-  order by m.round_number, m.kickoff limit 1;
+  from public.matches m
+  where m.round_number = public.open_round_number()
+  order by m.kickoff limit 1;
 
   -- B (serve a P2d-bis, che lo mette in lega con A) e C (nessuna lega)
   insert into public.predictions (user_id, match_id, home_goals, away_goals) values
@@ -163,7 +163,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega condivisa P2d-bis', 'public', public.current_round_number());
+  v_league_id := public.create_league('Test lega condivisa P2d-bis', 'public', public.open_round_number());
 
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
   perform public.join_public_league(v_league_id);
@@ -184,9 +184,9 @@ declare
   v_open_match text;
 begin
   select m.id into v_open_match
-  from public.matches m join public.rounds r using (round_number)
-  where r.locks_at > now()
-  order by m.round_number, m.kickoff limit 1;
+  from public.matches m
+  where m.round_number = public.open_round_number()
+  order by m.kickoff limit 1;
 
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
@@ -269,15 +269,22 @@ end $$;
 
 -- ========== FASE 4: calendario unico, anon ovunque, locks_at ==========
 
--- P4a: turno corrente coerente con current_round_number()
+-- P4a: il turno 'corrente' della vista calendar e' open_round_number();
+-- current_round_number() resta il primo turno non completato.
 do $$
 declare
-  v_fn int := public.current_round_number();
+  v_open int := public.open_round_number();
+  v_cur int := public.current_round_number();
+  v_expected_cur int;
   v_calendar int;
+  v_n int;
 begin
-  select round_number into v_calendar from public.calendar where round_status = 'corrente' limit 1;
+  select min(round_number) into v_expected_cur from public.matches where home_goals is null;
+  select min(round_number), count(distinct round_number) into v_calendar, v_n from public.calendar where round_status = 'corrente';
   insert into test_results(test, expected, actual, passed)
-    values ('P4a current_round_number coerente con calendar', v_fn::text, coalesce(v_calendar::text,'nessuno'), v_fn = v_calendar);
+    values ('P4a calendar corrente = open_round_number()', coalesce(v_open::text,'NULL'), coalesce(v_calendar::text,'nessuno'), v_open is not distinct from v_calendar);
+  insert into test_results(test, expected, actual, passed)
+    values ('P4a current_round_number() = primo turno con partite senza risultato', coalesce(v_expected_cur::text,'ultimo turno'), v_cur::text, v_expected_cur is null or v_cur = v_expected_cur);
 end $$;
 
 -- P4b: locks_at coerente con min(kickoff) per ogni turno
@@ -330,7 +337,7 @@ exception when insufficient_privilege then
 end $$;
 reset role;
 
--- locks_at: modifica libera prima della chiusura (primo turno ancora aperto)
+-- locks_at: modifica libera prima della chiusura (turno aperto)
 do $$
 declare
   v_before timestamptz;
@@ -339,7 +346,7 @@ declare
   v_match text;
 begin
   select r.round_number, r.locks_at into v_round, v_before
-  from public.rounds r where r.locks_at > now() order by r.round_number limit 1;
+  from public.rounds r where r.round_number = public.open_round_number();
   select id into v_match from public.matches where round_number = v_round order by kickoff limit 1;
   update public.matches set kickoff = v_before - interval '1 hour' where id = v_match;
   select locks_at into v_after from public.rounds where round_number = v_round;
@@ -375,7 +382,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega rate limit', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega rate limit', 'private', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_league_id;
@@ -421,8 +428,8 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_private_id := public.create_league('Test privata per j', 'private', public.current_round_number());
-  v_public_id := public.create_league('Test pubblica per j', 'public', public.current_round_number());
+  v_private_id := public.create_league('Test privata per j', 'private', public.open_round_number());
+  v_public_id := public.create_league('Test pubblica per j', 'public', public.open_round_number());
 
   select exists(select 1 from public.list_public_leagues() where id = v_private_id) into v_private_leaked;
   select exists(select 1 from public.list_public_leagues() where id = v_public_id) into v_public_found;
@@ -451,8 +458,8 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_pub_id := public.create_league('Test pubblica per k', 'public', public.current_round_number());
-  v_priv_id := public.create_league('Test privata per k', 'private', public.current_round_number());
+  v_pub_id := public.create_league('Test pubblica per k', 'public', public.open_round_number());
+  v_priv_id := public.create_league('Test privata per k', 'private', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_priv_id;
@@ -586,7 +593,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega minuscole', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega minuscole', 'private', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_league_id;
@@ -614,7 +621,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega privata per p', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega privata per p', 'private', public.open_round_number());
   set local request.jwt.claim.sub = '31e2df43-b49a-4b56-af0a-78aff50a9dd6';
   v_result := public.join_public_league(v_league_id);
   reset role;
@@ -639,7 +646,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega join_private_league id q', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega join_private_league id q', 'private', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_league_id;
@@ -675,7 +682,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega privata non membro a', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega privata non membro a', 'private', public.open_round_number());
   reset role;
 
   set local role authenticated;
@@ -707,7 +714,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega B membro non owner b', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega B membro non owner b', 'private', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_league_id;
@@ -745,8 +752,8 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega scritture dirette c', 'private', public.current_round_number());
-  v_public_league_id := public.create_league('Test lega pubblica scritture dirette c', 'public', public.current_round_number());
+  v_league_id := public.create_league('Test lega scritture dirette c', 'private', public.open_round_number());
+  v_public_league_id := public.create_league('Test lega pubblica scritture dirette c', 'public', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_league_id;
@@ -759,7 +766,7 @@ begin
   begin
     set local role authenticated;
     set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-    insert into public.leagues (name, visibility, start_round, created_by) values ('Insert diretto c', 'public', public.current_round_number(), '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4');
+    insert into public.leagues (name, visibility, start_round, created_by) values ('Insert diretto c', 'public', public.open_round_number(), '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4');
     reset role;
     insert into test_results(test, expected, actual, passed) values ('P6c insert diretto su leagues', 'rifiutato', 'NON rifiutato (BUG)', false);
   exception when insufficient_privilege then
@@ -845,8 +852,8 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_pub_id := public.create_league('Test lega pubblica ruolo d', 'public', public.current_round_number());
-  v_priv_id := public.create_league('Test lega privata ruolo d', 'private', public.current_round_number());
+  v_pub_id := public.create_league('Test lega pubblica ruolo d', 'public', public.open_round_number());
+  v_priv_id := public.create_league('Test lega privata ruolo d', 'private', public.open_round_number());
   reset role;
 
   select code into v_code from public.league_invites where league_id = v_priv_id;
@@ -894,7 +901,7 @@ declare
 begin
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
-  v_league_id := public.create_league('Test lega azioni owner e', 'private', public.current_round_number());
+  v_league_id := public.create_league('Test lega azioni owner e', 'private', public.open_round_number());
   reset role;
 
   select code into v_code_old from public.league_invites where league_id = v_league_id;
@@ -948,6 +955,101 @@ begin
     ('P6e dopo delete_league: 0 righe league_invites', '0', v_invites_after::text, v_invites_after = 0);
 end $$;
 
+-- ========== open_round_number(): turno aperto, stati della vista calendar ==========
+-- (N1-N3 girano PRIMA di P6f: P6f blocca in transazione il turno aperto, e dopo non
+--  ci sarebbero turni 'futuro' da verificare.)
+
+-- N1: coerenza degli stati della vista calendar con le due definizioni di turno.
+-- Nessun id o numero di turno scritto a mano: tutto derivato dal DB.
+do $$
+declare
+  v_open int := public.open_round_number();
+  v_bad int;
+  v_n_correnti int;
+  v_correnti_ok boolean;
+  v_n_futuri int;
+begin
+  select count(*) into v_bad
+  from public.calendar c
+  where (c.round_status = 'giocato' and exists (
+           select 1 from public.matches m where m.round_number = c.round_number and m.home_goals is null))
+     or (c.round_status = 'in_corso' and (c.locks_at > now() or not exists (
+           select 1 from public.matches m where m.round_number = c.round_number and m.home_goals is null)))
+     or (c.round_status = 'futuro' and (c.locks_at <= now() or (v_open is not null and c.round_number <= v_open)))
+     or (c.round_status = 'corrente' and c.round_number is distinct from v_open);
+  insert into test_results(test, expected, actual, passed)
+    values ('N1 stati calendar coerenti (giocato / in_corso / corrente / futuro)', '0 righe incoerenti', v_bad::text, v_bad = 0);
+
+  select count(distinct round_number) into v_n_correnti from public.calendar where round_status = 'corrente';
+  v_correnti_ok := v_n_correnti = case when v_open is null then 0 else 1 end;
+  insert into test_results(test, expected, actual, passed)
+    values ('N1 al massimo un turno corrente (uno se esiste un turno aperto)', case when v_open is null then '0' else '1' end, v_n_correnti::text, v_correnti_ok);
+  select count(distinct round_number) into v_n_futuri from public.calendar where round_status = 'futuro';
+  insert into test_results(test, expected, actual, passed)
+    values ('N1 copertura: esiste almeno un turno futuro da verificare', '>= 1', v_n_futuri::text, v_n_futuri >= 1);
+end $$;
+
+-- N2: open_round_number() e' il piu' basso con locks_at futuro; tutti i turni piu' bassi sono bloccati.
+do $$
+declare
+  v_open int := public.open_round_number();
+  v_lower_open int;
+begin
+  select count(*) into v_lower_open from public.rounds where round_number < v_open and locks_at > now();
+  insert into test_results(test, expected, actual, passed)
+    values ('N2 nessun turno piu'' basso di open_round_number() e'' ancora aperto', '0', v_lower_open::text, v_lower_open = 0);
+  insert into test_results(test, expected, actual, passed)
+    values ('N2 open_round_number() ha locks_at nel futuro', 'true',
+            (select (locks_at > now())::text from public.rounds where round_number = v_open),
+            (select locks_at > now() from public.rounds where round_number = v_open));
+end $$;
+
+-- N3: create_league sul turno chiuso (quello subito prima del turno aperto) rifiutata;
+-- sul turno aperto e sul successivo accettata.
+do $$
+declare
+  v_open int := public.open_round_number();
+  v_closed int := v_open - 1;
+  v_next int;
+  v_rejected boolean := false;
+  v_msg text := '';
+  v_ok_open boolean := false;
+  v_ok_next boolean := false;
+begin
+  select min(round_number) into v_next from public.rounds where round_number > v_open;
+
+  if v_closed >= 1 then
+    begin
+      set local role authenticated;
+      set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+      perform public.create_league('Test turno chiuso N3', 'public', v_closed);
+    exception when raise_exception then
+      v_rejected := true;
+      v_msg := sqlerrm;
+    end;
+    reset role;
+    insert into test_results(test, expected, actual, passed)
+      values ('N3 create_league su turno chiuso -> rifiutata', 'rifiutata: turno chiuso', case when v_rejected then 'rifiutata: ' || v_msg else 'NON rifiutata (BUG)' end,
+              v_rejected and v_msg like '%già chiuso%');
+  end if;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+  perform public.create_league('Test turno aperto N3', 'public', v_open);
+  v_ok_open := true;
+  if v_next is not null then
+    perform public.create_league('Test turno successivo N3', 'public', v_next);
+    v_ok_next := true;
+  end if;
+  reset role;
+  insert into test_results(test, expected, actual, passed)
+    values ('N3 create_league sul turno aperto -> accettata', 'true', v_ok_open::text, v_ok_open);
+  if v_next is not null then
+    insert into test_results(test, expected, actual, passed)
+      values ('N3 create_league sul turno successivo -> accettata', 'true', v_ok_next::text, v_ok_next);
+  end if;
+end $$;
+
 -- P6f: league_leaderboard con start_round = primo turno APERTO, utenti
 -- sintetici D ed E (creati in cima, vivono solo in questa transazione) e
 -- risultati FINTI scritti sulle partite del turno aperto (annullati dal
@@ -986,7 +1088,7 @@ declare
   v_rows_f2 text := '';
 begin
   select coalesce(
-           (select min(round_number) from public.rounds where locks_at > now()),
+           public.open_round_number(),
            (select max(round_number) from public.rounds)
          ) into v_start;
   v_prev := v_start - 1;
@@ -1146,9 +1248,11 @@ declare
     $q$select * from public.list_public_leagues()$q$,
     $q$select public.is_league_member('00000000-0000-0000-0000-000000000000'::uuid)$q$,
     $q$select public.is_league_owner('00000000-0000-0000-0000-000000000000'::uuid)$q$,
-    $q$select public.shares_league_with('00000000-0000-0000-0000-000000000000'::uuid)$q$
+    $q$select public.shares_league_with('00000000-0000-0000-0000-000000000000'::uuid)$q$,
+    $q$select public.open_round_number()$q$,
+    $q$select public.current_round_number()$q$
   ];
-  labels text[] := array['create_league','join_private_league','join_public_league','leave_league','remove_league_member','regenerate_invite_code','delete_league','league_leaderboard','list_public_leagues','is_league_member','is_league_owner','shares_league_with'];
+  labels text[] := array['create_league','join_private_league','join_public_league','leave_league','remove_league_member','regenerate_invite_code','delete_league','league_leaderboard','list_public_leagues','is_league_member','is_league_owner','shares_league_with','open_round_number','current_round_number'];
   i int;
   rejected boolean;
 begin
@@ -1181,7 +1285,9 @@ declare
     'public.list_public_leagues()',
     'public.is_league_member(uuid)',
     'public.is_league_owner(uuid)',
-    'public.shares_league_with(uuid)'
+    'public.shares_league_with(uuid)',
+    'public.open_round_number()',
+    'public.current_round_number()'
   ];
   roles text[] := array['anon','public','authenticated'];
   expected_vals boolean[] := array[false,false,true];
@@ -1203,6 +1309,39 @@ end $$;
 
 -- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):
 -- totali + elenco dei falliti + tutti i test in un unico json.
+-- N4 (ultimo, cambia lo stato dei turni): con tutti i turni bloccati open_round_number()
+-- e' NULL, la vista non ha turni 'corrente' e create_league e' rifiutata.
+-- I kickoff si anticipano nella transazione (consentito dal trigger); il rollback finale li ripristina.
+do $$
+declare
+  v_null boolean;
+  v_correnti int;
+  v_rejected boolean := false;
+  v_msg text := '';
+begin
+  update public.matches set kickoff = kickoff - interval '400 days'
+  where round_number in (select round_number from public.rounds where locks_at > now());
+
+  v_null := public.open_round_number() is null;
+  select count(*) into v_correnti from public.calendar where round_status = 'corrente';
+
+  begin
+    set local role authenticated;
+    set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+    perform public.create_league('Test nessun turno aperto N4', 'public', (select max(round_number) from public.rounds));
+  exception when raise_exception then
+    v_rejected := true;
+    v_msg := sqlerrm;
+  end;
+  reset role;
+
+  insert into test_results(test, expected, actual, passed) values
+    ('N4 tutti i turni bloccati: open_round_number() NULL', 'true', v_null::text, v_null),
+    ('N4 tutti i turni bloccati: nessun turno corrente nella vista', '0', v_correnti::text, v_correnti = 0),
+    ('N4 tutti i turni bloccati: create_league rifiutata', 'rifiutata: nessun turno aperto', case when v_rejected then 'rifiutata: ' || v_msg else 'NON rifiutata (BUG)' end,
+     v_rejected and v_msg like '%nessun turno aperto%');
+end $$;
+
 select
   count(*) as test_totali,
   count(*) filter (where not passed) as test_falliti,

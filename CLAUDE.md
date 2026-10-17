@@ -110,10 +110,6 @@ nel frattempo si gioca solo in leghe.
     esserci), `in_corso` (chiuso ma con partite senza risultato), `futuro`.
     Il frontend gestisce l'assenza del turno corrente con uno stato "in attesa
     del prossimo turno", non con un errore.
-  - STATO: `open_round_number()` e lo stato `in_corso` sono nella migrazione
-    `20261017120000_open_round_number.sql`, **non ancora applicata**; finché
-    non lo è, la vista `calendar` usa ancora `current_round_number()`.
-    Rimuovere questa riga all'applicazione.
 - `rounds.locks_at` è calcolato in automatico da un trigger su `matches`
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").

@@ -1,6 +1,6 @@
--- NON APPLICATA — in attesa di approvazione esplicita.
--- Da applicare solo dopo revisione; poi aggiornare security.sql (vedi sotto),
--- rilanciarlo per intero e lanciare gli advisor di sicurezza e performance.
+-- APPLICATA al database il 2026-10-17 (apply_migration, versione 20261017220320).
+-- Dopo l'applicazione: security.sql aggiornato e rilanciato per intero (159 test,
+-- 0 falliti), advisor di sicurezza e performance lanciati.
 --
 -- Introduce open_round_number() = turno aperto ai pronostici (il più basso con
 -- locks_at nel futuro, NULL se non ce ne sono) e la usa in create_league e nella
@@ -13,20 +13,8 @@
 --   3) vista calendar: 'corrente' = open_round_number(); nuovo stato 'in_corso'
 --   4) EXECUTE solo ad authenticated su current_round_number() e open_round_number()
 --
--- Test da aggiornare dopo l'applicazione (security.sql):
---   - tutte le create_league(..., public.current_round_number()) ->
---     public.open_round_number() (P2d-bis, P5i, P5j, P5k, P5o, P5p, P5q, P6a,
---     P6b, P6c, P6d, P6e) e l'insert diretto di P6c;
---   - P4a: calendar 'corrente' = open_round_number() (e current_round_number()
---     invariata);
---   - P2d, P2e, locks_at: sostituire la ricerca inline del turno aperto con
---     open_round_number();
---   - nuovi: create_league sul turno chiuso corrente rifiutata, sul turno aperto
---     accettata; open_round_number() NULL con tutti i turni bloccati (kickoff
---     anticipati nella transazione) e create_league rifiutata; al massimo un
---     solo turno 'corrente'; 'in_corso' = locks_at passato con partite senza
---     risultato; matrici has_function_privilege/anon execute con le due
---     funzioni (anon e public false, authenticated true).
+-- I test di supabase/tests/security.sql sono stati aggiornati di conseguenza
+-- (create_league sul turno aperto, P4a, N1-N4, matrici di privilegi).
 
 -- 1) turno aperto ai pronostici --------------------------------------------
 

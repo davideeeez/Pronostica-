@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { SearchIcon, ShieldCrest } from '../../components/icons';
-import { useAuth } from '../../contexts/AuthContext';
 import { useMyLeagues } from '../../hooks/useMyLeagues';
 import { fetchExploreLeagues, joinPublicLeague, type ExploreLeague } from '../../lib/leagues';
 
 export function LegheEsplora() {
   const navigate = useNavigate();
-  const { session } = useAuth();
-  const { leagues: myLeagues } = useMyLeagues(session?.user.id);
+  const { leagues: myLeagues, refreshLeagues } = useMyLeagues();
   const myLeagueIds = new Set(myLeagues.map((l) => l.id));
 
   const [query, setQuery] = useState('');
@@ -44,6 +42,7 @@ export function LegheEsplora() {
     try {
       const outcome = await joinPublicLeague(league.id);
       if (outcome === 'ok' || outcome === 'already_member') {
+        await refreshLeagues();
         navigate(`/menu/leghe/${league.id}`);
         return;
       }

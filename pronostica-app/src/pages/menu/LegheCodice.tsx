@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { CodeIcon } from '../../components/icons';
+import { useMyLeagues } from '../../hooks/useMyLeagues';
 import { joinPrivateLeague } from '../../lib/leagues';
 
 export function LegheCodice() {
   const navigate = useNavigate();
+  const { refreshLeagues } = useMyLeagues();
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,11 +26,13 @@ export function LegheCodice() {
     try {
       const { outcome, leagueId } = await joinPrivateLeague(cleaned);
       if (outcome === 'ok' && leagueId) {
+        await refreshLeagues();
         navigate(`/menu/leghe/${leagueId}`);
         return;
       }
       if (outcome === 'already_member' && leagueId) {
         setInfo('Sei già in questa lega');
+        await refreshLeagues();
         navigate(`/menu/leghe/${leagueId}`);
         return;
       }

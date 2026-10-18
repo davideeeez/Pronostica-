@@ -3,24 +3,22 @@ import { Link } from 'react-router-dom';
 import { PlusIcon, CodeIcon, SearchIcon, ShieldCrest } from '../components/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useMyLeagues } from '../hooks/useMyLeagues';
-import { getSelectedLeagueId } from '../lib/selectedLeague';
 import { fetchLeagueLeaderboard, type LeaderboardRow } from '../lib/leagues';
 
 export function Classifica() {
   const { session } = useAuth();
-  const { loading: leaguesLoading, leagues } = useMyLeagues(session?.user.id);
+  const { loading: leaguesLoading, selectedLeague } = useMyLeagues();
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedId = getSelectedLeagueId();
-  const selectedLeague = leagues.find((l) => l.id === selectedId) ?? leagues[0] ?? null;
+  const selectedLeagueId = selectedLeague?.id ?? null;
 
   useEffect(() => {
-    if (!selectedLeague) return;
+    if (!selectedLeagueId) return;
     let cancelled = false;
     setRows(null);
     setError(null);
-    fetchLeagueLeaderboard(selectedLeague.id)
+    fetchLeagueLeaderboard(selectedLeagueId)
       .then((r) => {
         if (!cancelled) setRows(r);
       })
@@ -30,7 +28,7 @@ export function Classifica() {
     return () => {
       cancelled = true;
     };
-  }, [selectedLeague]);
+  }, [selectedLeagueId]);
 
   if (leaguesLoading) {
     return <div className="page" />;

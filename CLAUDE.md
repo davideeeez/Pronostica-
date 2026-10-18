@@ -110,6 +110,13 @@ nel frattempo si gioca solo in leghe.
     esserci), `in_corso` (chiuso ma con partite senza risultato), `futuro`.
     Il frontend gestisce l'assenza del turno corrente con uno stato "in attesa
     del prossimo turno", non con un errore.
+- La lega selezionata (e l'elenco delle mie leghe) ha un'unica fonte nel
+  frontend: `MyLeaguesProvider` (`src/contexts/`), sopra le rotte, letto con
+  `useMyLeagues()`. Salva la scelta sul dispositivo a ogni cambio, la legge
+  all'avvio e non scrive nulla finché l'elenco non è caricato. Pagine e
+  componenti non tengono una copia propria né leggono `localStorage`.
+  Aprire il dettaglio di una lega non cambia la selezione: la cambia solo il
+  selettore dell'header.
 - `rounds.locks_at` è calcolato in automatico da un trigger su `matches`
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").

@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { LockIcon, GlobeIcon, CheckCircleIcon, CopyIcon, ShareIcon } from '../../components/icons';
 import { useCalendar } from '../../hooks/useCalendar';
+import { useMyLeagues } from '../../hooks/useMyLeagues';
 import { createLeague, fetchLeagueInviteCode, type LeagueVisibility } from '../../lib/leagues';
 
 export function LegheCrea() {
   const navigate = useNavigate();
+  const { refreshLeagues } = useMyLeagues();
   const { loading: calendarLoading, error: calendarError, rounds, currentRound } = useCalendar();
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<LeagueVisibility>('private');
@@ -31,6 +33,7 @@ export function LegheCrea() {
     try {
       const leagueId = await createLeague(trimmedName, visibility, effectiveStartRound);
       const code = visibility === 'private' ? await fetchLeagueInviteCode(leagueId) : null;
+      await refreshLeagues();
       setCreated({ leagueId, code });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto.');

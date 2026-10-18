@@ -12,12 +12,12 @@ import { fetchLeagueLeaderboard, type LeaderboardRow } from '../lib/leagues';
 
 export function Home() {
   const { profile, session } = useAuth();
-  const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
   const [done, setDone] = useState(0);
   const [myRow, setMyRow] = useState<LeaderboardRow | null>(null);
   const [leagueStatsError, setLeagueStatsError] = useState<string | null>(null);
   const { loading, error, currentRound } = useCalendar();
-  const { leagues: myLeagues, loading: leaguesLoading } = useMyLeagues(session?.user.id);
+  const { leagues: myLeagues, loading: leaguesLoading, selectedLeague } = useMyLeagues();
+  const selectedLeagueId = selectedLeague?.id ?? null;
   const { countdownLabel } = useRoundLock(currentRound?.locksAt ?? null);
   const total = currentRound?.matches.length ?? 0;
   const remaining = total - done;
@@ -63,7 +63,7 @@ export function Home() {
 
   return (
     <div className="page">
-      <AppHeader onSelectionChange={setSelectedLeagueId} />
+      <AppHeader />
 
       <div className="page-scroll">
         {!currentRound ? (

@@ -1,13 +1,11 @@
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { PlusIcon, CodeIcon, SearchIcon, ShieldCrest, ChevronRightThinIcon } from '../../components/icons';
-import { useAuth } from '../../contexts/AuthContext';
 import { useMyLeagues } from '../../hooks/useMyLeagues';
 import type { MyLeague } from '../../lib/leagues';
 
 export function Leghe() {
-  const { session } = useAuth();
-  const { loading, error, leagues } = useMyLeagues(session?.user.id);
+  const { loading, error, leagues } = useMyLeagues();
   const privateLeagues = leagues.filter((l) => l.visibility === 'private');
   const publicLeagues = leagues.filter((l) => l.visibility === 'public');
 

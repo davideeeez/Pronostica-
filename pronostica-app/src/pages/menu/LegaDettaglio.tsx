@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { ShieldCrest, ShareIcon, ChevronRightThinIcon, CopyIcon } from '../../components/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useMyLeagues } from '../../hooks/useMyLeagues';
 import {
   deleteLeague,
   fetchLeague,
@@ -23,6 +24,7 @@ export function LegaDettaglio() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { session } = useAuth();
+  const { refreshLeagues } = useMyLeagues();
   const myUserId = session?.user.id;
 
   const [loading, setLoading] = useState(true);
@@ -135,6 +137,7 @@ export function LegaDettaglio() {
     try {
       const outcome = await leaveLeague(id);
       if (outcome === 'ok') {
+        await refreshLeagues();
         navigate('/menu/leghe');
       } else if (outcome === 'owner_cannot_leave') {
         setActionError('Il creatore non può abbandonare la lega. Eliminala, oppure trasferiscine la proprietà (non ancora disponibile).');
@@ -156,6 +159,7 @@ export function LegaDettaglio() {
     try {
       const outcome = await deleteLeague(id);
       if (outcome === 'ok') {
+        await refreshLeagues();
         navigate('/menu/leghe');
       } else {
         setActionError('Solo il creatore può eliminare la lega.');

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { MyLeaguesProvider } from './contexts/MyLeaguesProvider';
 import { BottomNav } from './components/BottomNav';
 import { Login } from './pages/Login';
 import { Onboarding } from './pages/Onboarding';
@@ -47,10 +48,12 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/privacy" element={<Privacy />} />
-          <Route path="/*" element={<Gate />} />
-        </Routes>
+        <MyLeaguesProvider>
+          <Routes>
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/*" element={<Gate />} />
+          </Routes>
+        </MyLeaguesProvider>
       </AuthProvider>
     </BrowserRouter>
   );

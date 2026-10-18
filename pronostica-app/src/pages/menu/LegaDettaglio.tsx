@@ -140,7 +140,7 @@ export function LegaDettaglio() {
         await refreshLeagues();
         navigate('/menu/leghe');
       } else if (outcome === 'owner_cannot_leave') {
-        setActionError('Il creatore non può abbandonare la lega. Eliminala, oppure trasferiscine la proprietà (non ancora disponibile).');
+        setActionError('Il creatore non può uscire dalla lega. Puoi eliminarla dal menu della lega.');
       } else {
         setActionError('Non fai più parte di questa lega.');
       }

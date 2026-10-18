@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { SearchIcon, ShieldCrest } from '../../components/icons';
@@ -15,6 +15,8 @@ export function LegheEsplora() {
   const [error, setError] = useState<string | null>(null);
   const [leagues, setLeagues] = useState<ExploreLeague[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  // Blocco sincrono: due tap ravvicinati non possono far partire due chiamate, qualunque sia il momento del render.
+  const joiningLock = useRef(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +39,8 @@ export function LegheEsplora() {
   const filtered = leagues.filter((l) => l.name.toLowerCase().includes(query.toLowerCase()));
 
   async function handleJoin(league: ExploreLeague) {
+    if (joiningLock.current) return;
+    joiningLock.current = true;
     setJoiningId(league.id);
     setJoinError(null);
     try {
@@ -50,6 +54,7 @@ export function LegheEsplora() {
     } catch (err) {
       setJoinError(err instanceof Error ? err.message : 'Errore sconosciuto.');
     } finally {
+      joiningLock.current = false;
       setJoiningId(null);
     }
   }
@@ -99,13 +104,16 @@ export function LegheEsplora() {
                         Già dentro
                       </span>
                     ) : (
-                      <span
+                      <button
+                        type="button"
                         className="badge-accent"
-                        style={{ flex: 'none', fontFamily: 'var(--font-body)', fontWeight: 600, padding: '14px 13px', minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', opacity: joiningId === l.id ? 0.6 : 1 }}
-                        onClick={() => joiningId === null && handleJoin(l)}
+                        disabled={joiningId !== null}
+                        aria-busy={joiningId === l.id}
+                        style={{ flex: 'none', border: 'none', fontFamily: 'var(--font-body)', fontWeight: 600, padding: '14px 13px', minHeight: 44, display: 'flex', alignItems: 'center', cursor: joiningId === null ? 'pointer' : 'default', opacity: joiningId === null ? 1 : joiningId === l.id ? 0.8 : 0.5 }}
+                        onClick={() => handleJoin(l)}
                       >
-                        {joiningId === l.id ? '…' : 'Entra'}
-                      </span>
+                        {joiningId === l.id ? 'Entro…' : 'Entra'}
+                      </button>
                     )}
                   </div>
                 );

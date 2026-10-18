@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { CodeIcon } from '../../components/icons';
@@ -10,6 +10,8 @@ export function LegheCodice() {
   const { refreshLeagues } = useMyLeagues();
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Blocco sincrono: due tap ravvicinati non possono far partire due chiamate, qualunque sia il momento del render.
+  const submitLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -18,7 +20,8 @@ export function LegheCodice() {
     // codice con spazi ovunque, il confronto server-side ignora comunque il
     // maiuscolo/minuscolo ma non spazi interni non ai bordi.
     const cleaned = code.replace(/\s+/g, '');
-    if (!cleaned) return;
+    if (!cleaned || submitLock.current) return;
+    submitLock.current = true;
 
     setSubmitting(true);
     setError(null);
@@ -40,6 +43,7 @@ export function LegheCodice() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto.');
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   }
@@ -71,7 +75,7 @@ export function LegheCodice() {
         {error && <p style={{ color: '#C0304A', fontSize: 13, textAlign: 'center' }}>{error}</p>}
 
         <div style={{ paddingTop: 4 }}>
-          <button className="btn btn-primary" style={{ width: '100%' }} disabled={submitting || !code.replace(/\s+/g, '')} onClick={handleSubmit}>
+          <button className="btn btn-primary" style={{ width: '100%' }} disabled={submitting || !code.replace(/\s+/g, '')} aria-busy={submitting} onClick={handleSubmit}>
             {submitting ? 'Verifica in corso…' : 'Entra nella lega'}
           </button>
         </div>

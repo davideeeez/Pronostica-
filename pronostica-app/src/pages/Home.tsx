@@ -25,9 +25,8 @@ export function Home() {
   const hasLeagues = myLeagues.length > 0;
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !currentRound) return;
     fetchMyPredictions(session.user.id).then((map) => {
-      if (!currentRound) return;
       setDone(currentRound.matches.filter((m) => map[m.matchId]).length);
     });
   }, [session, currentRound]);

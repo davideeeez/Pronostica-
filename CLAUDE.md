@@ -100,7 +100,8 @@ nel frattempo si gioca solo in leghe.
   altrove**, nemmeno in una nuova query o vista:
   - `current_round_number()` = primo turno non completato: il più basso con
     almeno una partita senza risultato, altrimenti l'ultimo. Può essere già
-    chiuso ai pronostici (partite in corso, recuperi).
+    chiuso ai pronostici (partite in corso, recuperi). (Con la migrazione
+    scontri diventa "almeno una partita non `finita`".)
   - `open_round_number()` = turno aperto ai pronostici: il più basso con
     `locks_at` nel futuro, `NULL` se non ce n'è nessuno. È il turno su cui si
     pronostica: Home, Pronostici, `create_league` (turno di partenza ≥ turno
@@ -135,44 +136,65 @@ nel frattempo si gioca solo in leghe.
   prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
   nascondimento — da chiudere prima di apertura pubblica.
 
-## Leghe a scontri diretti — DA COSTRUIRE (non implementare ora)
+## Leghe a scontri diretti — DA COSTRUIRE (proposta in `supabase/proposte/scontri/`, non applicata)
 
 MODALITÀ E CREAZIONE
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta
-  non si cambia più.
+  non si cambia più (trigger sul database).
 - Primo rilascio: scontri diretti solo in leghe PRIVATE.
-- La lega ha un turno di partenza, come oggi.
+- La lega ha un turno di partenza, come oggi. Creazione con `create_h2h_league`
+  (nessun overload di `create_league`).
 
-ISCRIZIONI E USCITE
-- Si entra fino al blocco (locks_at) del turno di partenza; dopo, nessun ingresso.
+ISCRIZIONI E USCITE (solo leghe a scontri; le leghe a classifica restano libere)
+- Si entra fino a `locks_at` del turno di partenza; dopo, nessun ingresso, uscita
+  o rimozione. Il creatore può solo eliminare la lega.
 - Prima del blocco, uscita e rimozione funzionano come oggi.
-- Dopo il blocco nessuno può uscire né essere rimosso; il creatore può solo
-  eliminare la lega.
-- Al blocco del turno di partenza, se i membri sono dispari la lega diventa
-  automaticamente a classifica. Creatore e membri vedono un avviso nei giorni
-  prima ("con numero dispari passa a classifica").
+- **Nessuna conversione in classifica**: la lega a scontri resta sempre a scontri,
+  anche con membri dispari.
+- Con 1 solo membro al blocco la lega è "non avviata": nessun abbinamento, solo
+  eliminazione; avviso al creatore prima del blocco.
 
 CALENDARIO
-- All'italiana, tutti contro tutti, dal turno di partenza al turno 38.
-- Ordine degli accoppiamenti fissato dal database con algoritmo deterministico
-  (metodo del cerchio) e salvato alla partenza; non dipende dal frontend e non
-  cambia più.
-- Dopo l'ultimo ciclo completo il calendario riparte dal primo turno: alcuni si
-  incontrano una volta in più, è voluto (come nel fantacalcio).
+- All'italiana (metodo del cerchio), dal turno di partenza al turno 38. Membri
+  ordinati per (joined_at, user_id).
+- Con N dispari si aggiunge un membro fantasma: chi lo incontra **riposa** in quel
+  turno; il ciclo dura N turni (N-1 se N pari). Abbinamenti con `user_b` nullo =
+  riposo; non esiste FK sul turno (i turni 10–38 non esistono ancora in `rounds`).
+- Il calendario è creato dal database alla prima lettura dopo il blocco
+  (`h2h_league_state`, idempotente, con lock di riga), non dal frontend e non
+  cambia più. Dopo l'ultimo ciclo completo riparte dal primo abbinamento.
 
 ESITO DELLO SCONTRO
 - Si confrontano i punti di turno (3 esatto, 1 esito, 0 sbagliato).
 - Più punti: 3 in classifica; stessi punti: 1 a testa; meno punti: 0.
-- Chi non pronostica un turno ha 0 punti di turno. L'avversario vince solo se
-  fa almeno 1 punto; se fa 0 è pareggio (1 a testa).
-- Le partite non pronosticate valgono 0 punti; le altre contano normalmente.
-- Un turno resta "in sospeso" finché tutte le sue partite hanno un risultato
-  (recuperi inclusi). I turni successivi si calcolano comunque, indipendenti
-  da quello in sospeso.
+- Chi non pronostica ha 0 punti di turno. L'avversario vince solo se fa almeno 1
+  punto; se fa 0 è pareggio (1 a testa).
+- **Riposo: 0 punti scontri e il turno non conta come giocato.**
+- Punti **provvisori** (partite `in_corso` e `finita`) e **definitivi** (solo
+  `finita`): il dettaglio dello scontro mostra i provvisori man mano; la classifica
+  scontri si aggiorna SOLO a turno concluso.
+- `matches.status` (`non_iniziata`/`in_corso`/`finita`): un risultato non nullo
+  NON basta più a dire "finale". I risultati si inseriscono ancora a mano; un
+  trigger porta a `finita` una partita con gol inseriti e stato di default.
+  `current_round_number()` e la vista `calendar` si basano sullo stato.
+- Un turno è "concluso" (`round_play_state`) solo con 10 partite presenti e tutte
+  `finita`; un recupero rinviato lo tiene "in corso" per le classifiche.
+
+HOME (solo leghe a scontri)
+- Prima del blocco del turno aperto: "Pronostica". Dal blocco fino a quando non
+  resta nessuna partita attiva nella finestra normale: "Segui lo scontro". Chi
+  riposa: "Turno di riposo". Finito il turno: "Pronostica" sul turno successivo.
+- Finestra normale = da `locks_at` a +96 ore; una partita è attiva se non è
+  `finita` ed è passato meno di 4 ore dal suo calcio d'inizio
+  (`round_live_number()`). Una partita rinviata oltre la finestra NON tiene la
+  Home in "Segui lo scontro" (diversamente dalle classifiche).
+- La scheda Pronostici resta sempre sul prossimo turno aperto.
+- Il dettaglio dello scontro (pronostici e punti di turno, per partita) si apre
+  dal proprio scontro nella scheda Calendario e dalla Home.
 
 CLASSIFICA FINALE (ordine dei criteri)
 1. Punti scontri diretti
-2. Punti totali dei pronostici (solo turni dalla partenza)
+2. Punti totali dei pronostici (solo turni dalla partenza, solo partite finite)
 3. Pronostico vincitrice corretto
 4. Pronostico capocannoniere corretto
 5. Più risultati esatti
@@ -182,9 +204,11 @@ CLASSIFICA FINALE (ordine dei criteri)
   "Pt scontri" e "Pt totali".
 
 DIPENDENZE E ORDINE DI LAVORO
-- I criteri 3 e 4 richiedono i pronostici stagionali (non ancora esistenti):
-  gli scontri diretti non si possono chiudere correttamente prima.
-- Calcolo di scontri e classifica solo nel database.
+- I criteri 3 e 4 richiedono i pronostici stagionali (non ancora esistenti; oggi
+  segnaposto che restituiscono `false`): gli scontri non si chiudono
+  correttamente prima.
+- Calcolo di scontri e classifica solo nel database. Niente integrazione con API
+  di dati live in questa fase.
 - Ordine: (1) test lega base con due account, (2) pronostici stagionali,
   (3) schema e funzioni scontri diretti con test di sicurezza prima del
   frontend, (4) frontend.

@@ -22,10 +22,10 @@ as $$
 $$;
 
 -- Turno "in svolgimento" per la HOME: l'ultimo turno bloccato con almeno una partita
--- ancora attiva NELLA FINESTRA NORMALE. Finestra = dal blocco a +96 ore. Una partita è
--- attiva se non è finita e non sono passate 4 ore dal suo calcio d'inizio (così un
--- risultato dimenticato non blocca la Home per giorni). Una partita rinviata e
--- riprogrammata oltre la finestra non conta.
+-- non finita il cui calcio d'inizio cade NELLA FINESTRA NORMALE (dal blocco a +96 ore).
+-- Nessuna soglia sull'orario: finché il risultato non è inserito (e i punti assegnati)
+-- la Home resta su "Segui lo scontro". Una partita rinviata e riprogrammata oltre la
+-- finestra non conta.
 create or replace function public.round_live_number()
 returns int
 language sql
@@ -40,11 +40,13 @@ as $$
       where m.round_number = r.round_number
         and m.kickoff <= r.locks_at + interval '96 hours'
         and m.status <> 'finita'
-        and now() < m.kickoff + interval '4 hours'
     )
 $$;
 
 -- 2) lega bloccata? (solo scontri, dopo locks_at del turno di partenza) ---------------------
+-- clock_timestamp() e non now(): una transazione iniziata prima del blocco e rimasta in
+-- attesa del lock di riga ha now() "congelato" prima di locks_at, e potrebbe inserire un
+-- membro dopo la generazione del calendario.
 create or replace function public.h2h_is_locked(p_league_id uuid)
 returns boolean
 language sql
@@ -52,7 +54,7 @@ stable
 set search_path = public
 as $$
   select coalesce(
-    (select l.mode = 'scontri' and now() >= r.locks_at
+    (select l.mode = 'scontri' and clock_timestamp() >= r.locks_at
      from public.leagues l join public.rounds r on r.round_number = l.start_round
      where l.id = p_league_id),
     false)
@@ -228,11 +230,11 @@ begin
   select count(*) into v_members from public.league_members lm where lm.league_id = p_league_id;
 
   if v_mode <> 'scontri' then
-    return query select v_mode, v_start, v_locks, (now() >= v_locks), null::text, v_members, false, null::text, null::int, null::smallint;
+    return query select v_mode, v_start, v_locks, (clock_timestamp() >= v_locks), null::text, v_members, false, null::text, null::int, null::smallint;
     return;
   end if;
 
-  v_locked := now() >= v_locks;
+  v_locked := clock_timestamp() >= v_locks;
   if v_locked then
     perform public.h2h_generate_schedule(p_league_id);
     select s.status into v_sched from public.league_h2h_schedule s where s.league_id = p_league_id;

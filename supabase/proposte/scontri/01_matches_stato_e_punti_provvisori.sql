@@ -142,6 +142,32 @@ as $$
            lm.joined_at asc;
 $$;
 
+-- 4b) classifica generale: stessa regola, solo punti definitivi ----------------------
+-- Stesse colonne e tipi di prima (CREATE OR REPLACE conserva grant e security_invoker).
+create or replace view public.general_leaderboard
+with (security_invoker = true)
+as
+select
+  pr.id as user_id,
+  pr.username,
+  pr.crest_pattern,
+  (coalesce(sum(ps.points_final), 0::bigint))::integer as total_points,
+  (coalesce(count(*) filter (where ps.points_final = 3), 0::bigint))::integer as exact_results,
+  (coalesce(count(*) filter (where ps.points_final = 1), 0::bigint))::integer as correct_outcomes,
+  rank() over (
+    order by coalesce(sum(ps.points_final), 0::bigint) desc,
+             coalesce(count(*) filter (where ps.points_final = 3), 0::bigint) desc,
+             coalesce(count(*) filter (where ps.points_final = 1), 0::bigint) desc
+  ) as rank
+from public.profiles pr
+left join public.prediction_scores ps on ps.user_id = pr.id
+where pr.username is not null
+group by pr.id, pr.username, pr.crest_pattern, pr.created_at
+order by (coalesce(sum(ps.points_final), 0::bigint))::integer desc,
+         (coalesce(count(*) filter (where ps.points_final = 3), 0::bigint))::integer desc,
+         (coalesce(count(*) filter (where ps.points_final = 1), 0::bigint))::integer desc,
+         pr.created_at;
+
 -- 5) igiene dei privilegi (indipendente dagli scontri) ---------------------------
 -- authenticated oggi ha anche INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER/REFERENCES
 -- su matches e rounds, e DELETE/TRUNCATE/TRIGGER/REFERENCES su predictions e

@@ -95,7 +95,7 @@ returns boolean language sql stable set search_path = public as $$ select false 
 
 -- 4) classifica scontri: si aggiorna SOLO a turno concluso ----------------------------------------
 -- Ordine: 1 punti scontri, 2 punti pronostici totali dal turno di partenza (solo partite
--- finite), 3 vincitore, 4 capocannoniere (segnaposto), 5 risultati esatti, 6 esiti.
+-- finite, turni conclusi), 3 vincitore, 4 capocannoniere (segnaposto), 5 risultati esatti, 6 esiti.
 -- Pari merito su tutti i criteri = stesso rank e tied = true (7: premio diviso).
 -- `giocati` esclude i turni di riposo; `riposi` li conta (solo turni conclusi).
 create or replace function public.h2h_standings(p_league_id uuid)
@@ -143,12 +143,14 @@ as $$
     from sides group by uid
   ),
   t as (
+    -- criteri 2, 5 e 6: solo turni 'concluso' (altrimenti l'ordine cambierebbe partita per partita)
     select ps.user_id as uid,
            coalesce(sum(ps.points_final), 0)::int as pt_totali,
            (count(*) filter (where ps.points_final = 3))::int as esatti,
            (count(*) filter (where ps.points_final = 1))::int as esiti
     from public.prediction_scores ps, sched
     where ps.round_number >= sched.start_round
+      and ps.round_number in (select r.round_number from public.rounds r where public.round_play_state(r.round_number) = 'concluso')
       and ps.user_id in (select lm.user_id from public.league_members lm where lm.league_id = p_league_id)
     group by ps.user_id
   ),
@@ -176,8 +178,11 @@ as $$
 $$;
 
 -- 5) dettaglio di uno scontro: partita per partita ------------------------------------------------
--- I pronostici dell'altro compaiono solo dopo il blocco del turno (policy di predictions).
--- points = provvisori (in corso e finite), points_final = solo finite.
+-- points = provvisori (in corso e finite), points_final = solo finite. Mai calcolati dal client.
+--  - partita finita senza pronostico: points = points_final = 0 (mai null)
+--  - partita non finita senza pronostico: null
+--  - pronostico dell'altro nascosto (turno non ancora bloccato) o non fatto: pred_* null in
+--    entrambi i casi; li distingue `round_locked` (prima del blocco = nascosto, dopo = non fatto).
 create or replace function public.h2h_match_detail(p_league_id uuid, p_round int, p_slot smallint)
 returns table (
   match_id text,
@@ -187,6 +192,7 @@ returns table (
   match_status text,
   actual_home int,
   actual_away int,
+  round_locked boolean,
   pred_home_a int,
   pred_away_a int,
   points_a int,
@@ -201,9 +207,15 @@ stable
 set search_path = public
 as $$
   select m.id, m.home, m.away, m.kickoff, m.status, m.home_goals, m.away_goals,
-         pa.pred_home, pa.pred_away, pa.points, pa.points_final,
-         pb.pred_home, pb.pred_away, pb.points, pb.points_final
+         (now() >= r.locks_at),
+         pa.pred_home, pa.pred_away,
+         coalesce(pa.points, case when m.status = 'finita' then 0 end),
+         coalesce(pa.points_final, case when m.status = 'finita' then 0 end),
+         pb.pred_home, pb.pred_away,
+         case when p.user_b is not null then coalesce(pb.points, case when m.status = 'finita' then 0 end) end,
+         case when p.user_b is not null then coalesce(pb.points_final, case when m.status = 'finita' then 0 end) end
   from public.league_h2h_pairings p
+  join public.rounds r on r.round_number = p.round_number
   join public.matches m on m.round_number = p.round_number
   left join public.prediction_scores pa on pa.match_id = m.id and pa.user_id = p.user_a
   left join public.prediction_scores pb on pb.match_id = m.id and pb.user_id = p.user_b

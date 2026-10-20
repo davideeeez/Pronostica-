@@ -132,6 +132,10 @@ nel frattempo si gioca solo in leghe.
   richiamarli comunque.
 - `leagues.created_by` e `leagues.start_round` non hanno un indice a supporto
   della foreign key — da aggiungere se la tabella cresce.
+- `league_h2h_pairings.user_a/user_b` → `profiles` senza `ON DELETE CASCADE`:
+  una lega a scontri avviata blocca la cancellazione del profilo dei suoi
+  membri. Da decidere prima dell'apertura pubblica e degli store (cancellazione
+  account obbligatoria).
 - Nessun limite di leghe per utente né di membri per lega (scelta di
   prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
   nascondimento — da chiudere prima di apertura pubblica.
@@ -173,6 +177,7 @@ ESITO DELLO SCONTRO
 - Punti **provvisori** (partite `in_corso` e `finita`) e **definitivi** (solo
   `finita`): il dettaglio dello scontro mostra i provvisori man mano; la classifica
   scontri si aggiorna SOLO a turno concluso.
+- `general_leaderboard` e `league_leaderboard` contano solo `points_final`.
 - `matches.status` (`non_iniziata`/`in_corso`/`finita`): un risultato non nullo
   NON basta più a dire "finale". I risultati si inseriscono ancora a mano; un
   trigger porta a `finita` una partita con gol inseriti e stato di default.
@@ -185,20 +190,22 @@ HOME (solo leghe a scontri)
   resta nessuna partita attiva nella finestra normale: "Segui lo scontro". Chi
   riposa: "Turno di riposo". Finito il turno: "Pronostica" sul turno successivo.
 - Finestra normale = da `locks_at` a +96 ore; una partita è attiva se non è
-  `finita` ed è passato meno di 4 ore dal suo calcio d'inizio
-  (`round_live_number()`). Una partita rinviata oltre la finestra NON tiene la
-  Home in "Segui lo scontro" (diversamente dalle classifiche).
+  `finita` e il suo calcio d'inizio cade nella finestra (`round_live_number()`).
+  Nessuna soglia oraria dal calcio d'inizio: finché il risultato non è inserito
+  (e i punti assegnati) la Home resta su "Segui lo scontro". Una partita rinviata
+  oltre la finestra NON tiene la Home in questo stato (diversamente dalle
+  classifiche).
 - La scheda Pronostici resta sempre sul prossimo turno aperto.
 - Il dettaglio dello scontro (pronostici e punti di turno, per partita) si apre
   dal proprio scontro nella scheda Calendario e dalla Home.
 
 CLASSIFICA FINALE (ordine dei criteri)
 1. Punti scontri diretti
-2. Punti totali dei pronostici (solo turni dalla partenza, solo partite finite)
+2. Punti totali dei pronostici (solo turni dalla partenza e solo turni conclusi)
 3. Pronostico vincitrice corretto
 4. Pronostico capocannoniere corretto
-5. Più risultati esatti
-6. Più esiti corretti
+5. Più risultati esatti (solo turni conclusi)
+6. Più esiti corretti (solo turni conclusi)
 7. Se persiste, premio diviso equamente
 - Nella lega a scontri diretti la tabella mostra come colonne principali
   "Pt scontri" e "Pt totali".

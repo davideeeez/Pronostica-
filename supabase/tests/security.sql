@@ -139,7 +139,8 @@ begin
     ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', v_open_match, 1, 1),
     ('31e2df43-b49a-4b56-af0a-78aff50a9dd6', 'r1-udinese-como', 1, 1),
     ('00000000-0000-4000-8000-0000000000c1', v_open_match, 1, 1),
-    ('00000000-0000-4000-8000-0000000000c1', 'r1-udinese-como', 1, 1);
+    ('00000000-0000-4000-8000-0000000000c1', 'r1-udinese-como', 1, 1)
+  on conflict (user_id, match_id) do nothing; -- B puo' aver gia' pronosticato per davvero il turno aperto
 
   set local role authenticated;
   set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
@@ -1301,6 +1302,152 @@ begin
       insert into test_results(test, expected, actual, passed)
         values ('P6h has_function_privilege(' || roles[j] || ', ' || f || ')', expected_vals[j]::text, v_priv::text, v_priv = expected_vals[j]);
     end loop;
+  end loop;
+end $$;
+
+
+-- ========== Migrazione 01: stato delle partite, punti provvisori/definitivi, privilegi ==========
+-- Nessun id o turno scritto a mano: la partita di prova e' la prima ancora 'non_iniziata'.
+
+-- ST1: privilegi di tabella (statico): authenticated non scrive matches/rounds, non cancella
+-- predictions/profiles; anon non ha nulla.
+do $$
+declare
+  t text;
+  p text;
+  v_bad text := '';
+begin
+  foreach t in array array['matches','rounds'] loop
+    foreach p in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
+      if has_table_privilege('authenticated', 'public.' || t, p) then v_bad := v_bad || t || ':' || p || ' '; end if;
+    end loop;
+  end loop;
+  foreach t in array array['predictions','profiles'] loop
+    foreach p in array array['DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
+      if has_table_privilege('authenticated', 'public.' || t, p) then v_bad := v_bad || t || ':' || p || ' '; end if;
+    end loop;
+  end loop;
+  foreach t in array array['matches','rounds','predictions','profiles'] loop
+    foreach p in array array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
+      if has_table_privilege('anon', 'public.' || t, p) then v_bad := v_bad || 'anon ' || t || ':' || p || ' '; end if;
+    end loop;
+  end loop;
+  insert into test_results(test, expected, actual, passed)
+    values ('ST1 privilegi di tabella: nessuna scrittura/cancellazione impropria', 'nessun privilegio in eccesso', coalesce(nullif(v_bad,''),'nessuno'), v_bad = '');
+end $$;
+
+-- ST2: invariante status/gol sui dati reali: nessuna partita con risultato e stato diverso da 'finita'
+-- (o in corso), nessuna 'finita' senza risultato.
+do $$
+declare
+  v_bad int;
+begin
+  select count(*) into v_bad from public.matches
+  where (home_goals is not null and status = 'non_iniziata') or (home_goals is null and status <> 'non_iniziata');
+  insert into test_results(test, expected, actual, passed)
+    values ('ST2 matches: stato coerente con i gol', '0 incoerenti', v_bad::text, v_bad = 0);
+end $$;
+
+-- ST3: trigger e vincolo: gol inseriti a mano -> 'finita'; 'in_corso' con gol resta tale;
+-- 'in_corso' senza gol e 'finita' senza gol rifiutati.
+do $$
+declare
+  v_match text;
+  v_s1 text; v_s2 text;
+  v_rej1 boolean := false; v_rej2 boolean := false;
+begin
+  select id into v_match from public.matches where status = 'non_iniziata' order by kickoff, id limit 1;
+  update public.matches set home_goals = 2, away_goals = 1 where id = v_match;
+  select status into v_s1 from public.matches where id = v_match;
+  update public.matches set status = 'in_corso', home_goals = 1, away_goals = 0 where id = v_match;
+  select status into v_s2 from public.matches where id = v_match;
+  begin
+    update public.matches set home_goals = null, away_goals = null where id = v_match;
+  exception when check_violation then v_rej1 := true;
+  end;
+  begin
+    update public.matches set status = 'finita', home_goals = null, away_goals = null where id = v_match;
+  exception when check_violation then v_rej2 := true;
+  end;
+  update public.matches set status = 'non_iniziata', home_goals = null, away_goals = null where id = v_match;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST3 gol inseriti a mano -> finita', 'finita', v_s1, v_s1 = 'finita'),
+    ('ST3 in_corso con gol resta in_corso', 'in_corso', v_s2, v_s2 = 'in_corso'),
+    ('ST3 in_corso senza gol rifiutato', 'check_violation', v_rej1::text, v_rej1),
+    ('ST3 finita senza gol rifiutata', 'check_violation', v_rej2::text, v_rej2);
+end $$;
+
+-- ST4: punti provvisori vs definitivi con utente sintetico D e una partita 'in corso' 1-0:
+-- prediction_scores.points = 3, points_final NULL; league_leaderboard e general_leaderboard
+-- (letta da amministratore: authenticated non vi ha accesso) contano solo le finite.
+do $$
+declare
+  v_match text;
+  v_round int;
+  v_league uuid;
+  v_pts_live int; v_fin_live int; v_lb_live int; v_gen_live int;
+  v_fin_done int; v_lb_done int; v_gen_done int;
+  v_lb_base int; v_gen_base int;
+begin
+  select id, round_number into v_match, v_round from public.matches where status = 'non_iniziata' order by kickoff, id limit 1;
+  insert into public.predictions (user_id, match_id, home_goals, away_goals)
+  values ('00000000-0000-4000-8000-0000000000d1', v_match, 1, 0);
+  insert into public.leagues (name, visibility, start_round, created_by)
+  values ('Test punti provvisori ST4', 'public', v_round, '00000000-0000-4000-8000-0000000000d1')
+  returning id into v_league;
+  insert into public.league_members (league_id, user_id, role) values (v_league, '00000000-0000-4000-8000-0000000000d1', 'owner');
+
+  -- D ha gia' punti da P6f nella stessa transazione: si confronta con la base, non con 0
+  select total_points into v_lb_base from public.league_leaderboard(v_league) where user_id = '00000000-0000-4000-8000-0000000000d1';
+  select total_points into v_gen_base from public.general_leaderboard where user_id = '00000000-0000-4000-8000-0000000000d1';
+  update public.matches set status = 'in_corso', home_goals = 1, away_goals = 0 where id = v_match;
+  select points, points_final into v_pts_live, v_fin_live from public.prediction_scores
+    where user_id = '00000000-0000-4000-8000-0000000000d1' and match_id = v_match;
+  select total_points into v_lb_live from public.league_leaderboard(v_league) where user_id = '00000000-0000-4000-8000-0000000000d1';
+  select total_points into v_gen_live from public.general_leaderboard where user_id = '00000000-0000-4000-8000-0000000000d1';
+
+  update public.matches set status = 'finita' where id = v_match;
+  select points_final into v_fin_done from public.prediction_scores
+    where user_id = '00000000-0000-4000-8000-0000000000d1' and match_id = v_match;
+  select total_points into v_lb_done from public.league_leaderboard(v_league) where user_id = '00000000-0000-4000-8000-0000000000d1';
+  select total_points into v_gen_done from public.general_leaderboard where user_id = '00000000-0000-4000-8000-0000000000d1';
+
+  insert into test_results(test, expected, actual, passed) values
+    ('ST4 in corso: points provvisori = 3', '3', coalesce(v_pts_live::text,'NULL'), v_pts_live = 3),
+    ('ST4 in corso: points_final NULL', 'NULL', coalesce(v_fin_live::text,'NULL'), v_fin_live is null),
+    ('ST4 in corso: league_leaderboard non conta la partita', v_lb_base::text, coalesce(v_lb_live::text,'NULL'), v_lb_live = v_lb_base),
+    ('ST4 in corso: general_leaderboard non conta la partita', v_gen_base::text, coalesce(v_gen_live::text,'NULL'), v_gen_live = v_gen_base),
+    ('ST4 finita: points_final = 3', '3', coalesce(v_fin_done::text,'NULL'), v_fin_done = 3),
+    ('ST4 finita: league_leaderboard conta +3', (v_lb_base + 3)::text, coalesce(v_lb_done::text,'NULL'), v_lb_done = v_lb_base + 3),
+    ('ST4 finita: general_leaderboard conta +3', (v_gen_base + 3)::text, coalesce(v_gen_done::text,'NULL'), v_gen_done = v_gen_base + 3);
+  update public.matches set status = 'non_iniziata', home_goals = null, away_goals = null where id = v_match;
+end $$;
+
+-- ST5: current_round_number() = primo turno con una partita non finita (basato sullo stato)
+do $$
+declare
+  v_exp int;
+  v_cur int := public.current_round_number();
+begin
+  select min(round_number) into v_exp from public.matches where status <> 'finita';
+  insert into test_results(test, expected, actual, passed)
+    values ('ST5 current_round_number() = primo turno con partite non finite', coalesce(v_exp::text,'ultimo turno'), v_cur::text, v_exp is null or v_cur = v_exp);
+end $$;
+
+-- ST6: viste con security_invoker e senza accesso ad anon/public
+do $$
+declare
+  v text;
+  v_inv boolean;
+  v_bad boolean;
+begin
+  foreach v in array array['calendar','prediction_scores','general_leaderboard'] loop
+    select coalesce(c.reloptions @> array['security_invoker=true'], false) into v_inv
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = v;
+    v_bad := has_table_privilege('anon', 'public.' || v, 'SELECT') or has_table_privilege('public', 'public.' || v, 'SELECT');
+    insert into test_results(test, expected, actual, passed) values
+      ('ST6 ' || v || ' security_invoker', 'true', v_inv::text, v_inv),
+      ('ST6 ' || v || ' non leggibile da anon/public', 'false', v_bad::text, not v_bad);
   end loop;
 end $$;
 

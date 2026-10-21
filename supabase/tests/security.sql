@@ -1208,6 +1208,80 @@ begin
     ('ST10 authenticated: h2h_generate_schedule (interna) rifiutata', 'rifiutato', v_rej_gen::text, v_rej_gen);
 end $$;
 
+-- ========== Migrazione 03b: uscite e rimozioni (blocco solo per le leghe a scontri) ==========
+do $$
+declare
+  v_open int := public.open_round_number();
+  v_h1 uuid; v_h2 uuid; v_c1 uuid;
+  v_leave_pre text; v_remove_pre text; v_rejoin text;
+  v_leave_lock text; v_remove_lock text; v_owner_leave text; v_members_lock int;
+  v_leave_cls text; v_remove_cls text; v_members_cls int;
+  v_remove_nonowner text; v_remove_unknown text;
+  v_code1 text;
+begin
+  -- D owner, E, F, G membri; tutto creato da amministratore (turno ancora aperto)
+  insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000a1') on conflict do nothing;
+  insert into public.profiles (id, username, crest_pattern) values ('00000000-0000-4000-8000-0000000000a1', 'utente_test_h', 'star') on conflict do nothing;
+  insert into public.leagues (name, visibility, mode, start_round, created_by) values ('Test scontri uscite prima ST11', 'private', 'scontri', v_open, '00000000-0000-4000-8000-0000000000d1') returning id into v_h1;
+  insert into public.league_members (league_id, user_id, role) values
+    (v_h1, '00000000-0000-4000-8000-0000000000d1', 'owner'),
+    (v_h1, '00000000-0000-4000-8000-0000000000e1', 'member'),
+    (v_h1, '00000000-0000-4000-8000-0000000000a1', 'member');
+  insert into public.leagues (name, visibility, mode, start_round, created_by) values ('Test scontri uscite bloccata ST11', 'private', 'scontri', v_open, '00000000-0000-4000-8000-0000000000d1') returning id into v_h2;
+  insert into public.league_members (league_id, user_id, role) values
+    (v_h2, '00000000-0000-4000-8000-0000000000d1', 'owner'),
+    (v_h2, '00000000-0000-4000-8000-0000000000e1', 'member'),
+    (v_h2, '00000000-0000-4000-8000-0000000000a1', 'member');
+  insert into public.leagues (name, visibility, start_round, created_by) values ('Test classifica uscite ST11', 'private', v_open, '00000000-0000-4000-8000-0000000000d1') returning id into v_c1;
+  insert into public.league_members (league_id, user_id, role) values
+    (v_c1, '00000000-0000-4000-8000-0000000000d1', 'owner'),
+    (v_c1, '00000000-0000-4000-8000-0000000000e1', 'member'),
+    (v_c1, '00000000-0000-4000-8000-0000000000a1', 'member');
+
+  -- prima del blocco (lega a scontri): uscita e rimozione funzionano
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
+  v_leave_pre := public.leave_league(v_h1);
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  v_remove_pre := public.remove_league_member(v_h1, '00000000-0000-4000-8000-0000000000a1');
+  v_remove_nonowner := public.remove_league_member(v_h1, '00000000-0000-4000-8000-0000000000c1');
+  reset role;
+
+  -- il turno si blocca
+  update public.matches set kickoff = kickoff - interval '60 days' where round_number = v_open;
+
+  -- lega a scontri bloccata
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
+  v_leave_lock := public.leave_league(v_h2);
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  v_remove_lock := public.remove_league_member(v_h2, '00000000-0000-4000-8000-0000000000a1');
+  v_owner_leave := public.leave_league(v_h2);
+  reset role;
+  select count(*) into v_members_lock from public.league_members where league_id = v_h2;
+
+  -- lega a classifica con turno di partenza bloccato: ancora libera
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
+  v_leave_cls := public.leave_league(v_c1);
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  v_remove_cls := public.remove_league_member(v_c1, '00000000-0000-4000-8000-0000000000a1');
+  reset role;
+  select count(*) into v_members_cls from public.league_members where league_id = v_c1;
+
+  insert into test_results(test, expected, actual, passed) values
+    ('ST11 lega a scontri prima del blocco: uscita di un membro -> ok', 'ok', v_leave_pre, v_leave_pre = 'ok'),
+    ('ST11 lega a scontri prima del blocco: rimozione di un membro -> ok', 'ok', v_remove_pre, v_remove_pre = 'ok'),
+    ('ST11 rimozione di chi non e'' membro -> not_member', 'not_member', v_remove_nonowner, v_remove_nonowner = 'not_member'),
+    ('ST11 lega a scontri bloccata: uscita -> locked', 'locked', v_leave_lock, v_leave_lock = 'locked'),
+    ('ST11 lega a scontri bloccata: rimozione di un membro -> locked', 'locked', v_remove_lock, v_remove_lock = 'locked'),
+    ('ST11 lega a scontri bloccata: il creatore non puo'' uscire', 'owner_cannot_leave', v_owner_leave, v_owner_leave = 'owner_cannot_leave'),
+    ('ST11 lega a scontri bloccata: nessun membro perso', '3', v_members_lock::text, v_members_lock = 3),
+    ('ST11 lega a classifica con turno bloccato: uscita -> ok', 'ok', v_leave_cls, v_leave_cls = 'ok'),
+    ('ST11 lega a classifica con turno bloccato: rimozione -> ok', 'ok', v_remove_cls, v_remove_cls = 'ok'),
+    ('ST11 lega a classifica: restano solo il creatore', '1', v_members_cls::text, v_members_cls = 1);
+end $$;
+
 -- P6f: league_leaderboard con start_round = primo turno APERTO, utenti
 -- sintetici D ed E (creati in cima, vivono solo in questa transazione) e
 -- risultati FINTI scritti sulle partite del turno aperto (annullati dal

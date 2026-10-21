@@ -136,6 +136,15 @@ nel frattempo si gioca solo in leghe.
   una lega a scontri avviata blocca la cancellazione del profilo dei suoi
   membri. Da decidere prima dell'apertura pubblica e degli store (cancellazione
   account obbligatoria).
+- **Rollback di 02/04 (`rollback/02_04_rollback.sql`)**: cancella le tabelle degli
+  scontri e quindi i calendari delle leghe a scontri avviate. Dalla prima lega
+  reale a scontri non si torna indietro: si corregge solo in avanti, con nuove
+  migrazioni.
+- Privilegi di default di Supabase: le tabelle nuove in `public` nascono con
+  tutti i privilegi (incluso MAINTAIN) per `anon`, `authenticated` e
+  `service_role` (`pg_default_acl`); ogni migrazione che crea una tabella o
+  vista deve revocarli esplicitamente (il test ST1 di `security.sql` fallisce
+  se una relazione ha privilegi non attesi).
 - `supabase/tests/security.sql`, test P2d: dipende dal pronostico reale
   dell'utente B sul turno aperto (oggi aggira il conflitto con `on conflict do
   nothing`). Da riscrivere con utenti sintetici, come richiede la regola sui

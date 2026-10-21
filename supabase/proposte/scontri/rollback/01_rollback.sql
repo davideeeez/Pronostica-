@@ -96,3 +96,7 @@ grant delete, truncate, references, trigger on public.profiles to authenticated;
 -- INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER su calendar e prediction_scores (SELECT incluso),
 -- e tutto tranne SELECT su general_leaderboard.
 grant insert, update, delete, truncate, references, trigger on public.calendar, public.prediction_scores, public.general_leaderboard to authenticated;
+
+-- (01c) MAINTAIN su tutte le relazioni che lo avevano per authenticated in produzione prima di 01c.
+grant maintain on public.matches, public.rounds, public.predictions, public.profiles,
+  public.calendar, public.prediction_scores, public.general_leaderboard to authenticated;

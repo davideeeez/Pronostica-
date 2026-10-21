@@ -1309,31 +1309,49 @@ end $$;
 -- ========== Migrazione 01: stato delle partite, punti provvisori/definitivi, privilegi ==========
 -- Nessun id o turno scritto a mano: la partita di prova e' la prima ancora 'non_iniziata'.
 
--- ST1: privilegi di tabella (statico): authenticated non scrive matches/rounds, non cancella
--- predictions/profiles; anon non ha nulla.
+-- ST1: matrice dei privilegi su TUTTE le relazioni di public (tabelle, viste, viste materializzate,
+-- partizionate, esterne), per authenticated e anon, MAINTAIN incluso. Per authenticated la lista dei
+-- privilegi attesi e' esplicita per relazione; qualunque relazione non elencata (nuova) deve avere
+-- ZERO privilegi, cosi' un privilegio o una relazione nuova non passano inosservati. anon: sempre nessuno.
 do $$
 declare
-  t text;
-  p text;
+  v_expected jsonb := '{
+    "calendar": "SELECT",
+    "general_leaderboard": "",
+    "league_invites": "SELECT",
+    "league_join_attempts": "",
+    "league_members": "SELECT",
+    "leagues": "SELECT",
+    "matches": "SELECT",
+    "prediction_scores": "SELECT",
+    "predictions": "INSERT,SELECT,UPDATE",
+    "profiles": "INSERT,SELECT,UPDATE",
+    "rounds": "SELECT",
+    "league_h2h_schedule": "SELECT",
+    "league_h2h_pairings": "SELECT"
+  }';
+  r record;
+  v_auth text; v_anon text; v_exp text;
   v_bad text := '';
+  v_n int := 0;
 begin
-  foreach t in array array['matches','rounds'] loop
-    foreach p in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
-      if has_table_privilege('authenticated', 'public.' || t, p) then v_bad := v_bad || t || ':' || p || ' '; end if;
-    end loop;
-  end loop;
-  foreach t in array array['predictions','profiles'] loop
-    foreach p in array array['DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
-      if has_table_privilege('authenticated', 'public.' || t, p) then v_bad := v_bad || t || ':' || p || ' '; end if;
-    end loop;
-  end loop;
-  foreach t in array array['matches','rounds','predictions','profiles'] loop
-    foreach p in array array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
-      if has_table_privilege('anon', 'public.' || t, p) then v_bad := v_bad || 'anon ' || t || ':' || p || ' '; end if;
-    end loop;
+  for r in
+    select c.oid, c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r', 'v', 'm', 'p', 'f') order by c.relname
+  loop
+    v_n := v_n + 1;
+    select coalesce(string_agg(p, ',' order by p), '') into v_auth
+      from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p
+      where has_table_privilege('authenticated', r.oid, p);
+    select coalesce(string_agg(p, ',' order by p), '') into v_anon
+      from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p
+      where has_table_privilege('anon', r.oid, p);
+    v_exp := coalesce(v_expected ->> r.relname, '');
+    if v_auth <> v_exp then v_bad := v_bad || r.relname || ': authenticated ha [' || v_auth || '] atteso [' || v_exp || '] | '; end if;
+    if v_anon <> '' then v_bad := v_bad || r.relname || ': anon ha [' || v_anon || '] atteso [] | '; end if;
   end loop;
   insert into test_results(test, expected, actual, passed)
-    values ('ST1 privilegi di tabella: nessuna scrittura/cancellazione impropria', 'nessun privilegio in eccesso', coalesce(nullif(v_bad,''),'nessuno'), v_bad = '');
+    values ('ST1 matrice privilegi di tutte le relazioni di public (' || v_n || ' relazioni)', 'nessuno scostamento', coalesce(nullif(v_bad,''),'nessuno scostamento'), v_bad = '');
 end $$;
 
 -- ST2: invariante status/gol sui dati reali: nessuna partita con risultato e stato diverso da 'finita'
@@ -1458,7 +1476,7 @@ do $$
 declare v text; p text; v_bad text := '';
 begin
   foreach v in array array['calendar','prediction_scores','general_leaderboard'] loop
-    foreach p in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
+    foreach p in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'] loop
       if has_table_privilege('authenticated', 'public.' || v, p) then v_bad := v_bad || v || ':' || p || ' '; end if;
     end loop;
   end loop;

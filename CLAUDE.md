@@ -159,8 +159,8 @@ nel frattempo si gioca solo in leghe.
 ## Leghe a scontri diretti — IN COSTRUZIONE
 
 Stato delle migrazioni (proposte in `supabase/proposte/scontri/`): **applicate**
-01 (stato partite), 01b, 01c, 01d (privilegi), 02 (schema). **Da applicare**: 03a
-(generazione e blocco), 03b (uscite/rimozioni), 04 (letture), poi i privilegi
+01 (stato partite), 01b, 01c, 01d (privilegi), 02 (schema), 03a (generazione e
+blocco ingressi). **Da applicare**: 03b (uscite/rimozioni), 04 (letture), poi i privilegi
 di default (`defaults_privilegi_PROPOSTA.sql`). Non applicare 03/04 durante le
 partite né dopo il blocco di un turno con leghe a scontri in gioco.
 

@@ -106,7 +106,7 @@ begin
       insert into public.league_invites (league_id, code) values (v_league_id, v_code);
       exit;
     exception when unique_violation then
-      -- codice già usato altrove: riprova con uno nuovo
+      null; -- codice già usato altrove: riprova con uno nuovo
     end;
   end loop;
 

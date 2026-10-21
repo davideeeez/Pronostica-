@@ -1051,6 +1051,163 @@ begin
   end if;
 end $$;
 
+-- ========== Migrazione 03a: creazione, calendario a cerchio, blocco degli ingressi ==========
+-- Utenti sintetici D (creatore), E, F, G (membri o candidati) e C (estraneo); turno "aperto" derivato dal DB;
+-- il blocco si simula anticipando i kickoff del turno nella transazione (annullata dal rollback finale).
+do $$
+declare
+  v_open int := public.open_round_number();
+  v_nrounds int;
+  v_l1 uuid; v_code1 text; v_mode text; v_vis text; v_start int; v_owner int; v_inv int;
+  v_rej_past boolean := false; v_rej_name boolean := false; v_rej_anon_create boolean := false; v_rej_anon_state boolean := false;
+  v_rej_live boolean := false; v_rej_locked boolean := false; v_rej_gen boolean := false;
+  v_join_pre text; v_status_pre text; v_warn_pre boolean; v_locked_pre boolean; v_c_rows_pre int;
+  v_lc uuid; v_codec text; v_join_closed text; v_join_class text; v_members_l1 int;
+  v_cm text; v_cs text; v_chome text;
+  v_l3 uuid; v_sched_status text; v_sched_cycle int; v_sched_members int; v_pairs int; v_rests int; v_bad_round int; v_dup int; v_first3 int;
+  v_pairs_after int; v_c_state int; v_c_pairs int; v_d_pairs int;
+  v_ls uuid; v_ls_status text; v_ls_home text; v_ls_pairs int; v_ls_sched int;
+  v_l1_status text; v_l1_pairs int; v_l1_rests int;
+begin
+  insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000f1'), ('00000000-0000-4000-8000-0000000000f2');
+  insert into public.profiles (id, username, crest_pattern) values
+    ('00000000-0000-4000-8000-0000000000f1', 'utente_test_f', 'star'),
+    ('00000000-0000-4000-8000-0000000000f2', 'utente_test_g', 'leaf');
+  v_nrounds := 38 - v_open + 1;
+
+  -- creazione (turno ancora aperto)
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  v_l1 := public.create_h2h_league('Test scontri creata ST10', v_open);
+  begin perform public.create_h2h_league('Test passato ST10', v_open - 1); exception when raise_exception then v_rej_past := true; end;
+  begin perform public.create_h2h_league('ab', v_open); exception when raise_exception then v_rej_name := true; end;
+  reset role;
+  select mode, visibility, start_round into v_mode, v_vis, v_start from public.leagues where id = v_l1;
+  select count(*) into v_owner from public.league_members where league_id = v_l1 and user_id = '00000000-0000-4000-8000-0000000000d1' and role = 'owner';
+  select count(*) into v_inv from public.league_invites where league_id = v_l1;
+  select code into v_code1 from public.league_invites where league_id = v_l1;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 create_h2h_league: lega scontri privata sul turno aperto', 'scontri/private/' || v_open, v_mode || '/' || v_vis || '/' || v_start, v_mode = 'scontri' and v_vis = 'private' and v_start = v_open),
+    ('ST10 create_h2h_league: il creatore e'' owner e c''e'' un codice', '1 owner, 1 codice', v_owner || ' owner, ' || v_inv || ' codice', v_owner = 1 and v_inv = 1),
+    ('ST10 create_h2h_league: turno di partenza gia'' chiuso rifiutato', 'rifiutato', v_rej_past::text, v_rej_past),
+    ('ST10 create_h2h_league: nome troppo corto rifiutato', 'rifiutato', v_rej_name::text, v_rej_name);
+
+  -- prima del blocco: ingresso libero, stato in attesa, non membro non vede nulla
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
+  select outcome into v_join_pre from public.join_private_league(v_code1);
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  select status, warn_not_starting, is_locked into v_status_pre, v_warn_pre, v_locked_pre from public.h2h_league_state(v_l1);
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000c1';
+  select count(*) into v_c_rows_pre from public.h2h_league_state(v_l1);
+  reset role;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 lega a scontri prima del blocco: l''ingresso con codice funziona', 'ok', v_join_pre, v_join_pre = 'ok'),
+    ('ST10 stato prima del blocco: in_attesa, non bloccata, nessun avviso (2 membri)', 'in_attesa/false/false', v_status_pre || '/' || v_locked_pre || '/' || v_warn_pre, v_status_pre = 'in_attesa' and not v_locked_pre and not v_warn_pre),
+    ('ST10 h2h_league_state: un non membro non ottiene righe', '0', v_c_rows_pre::text, v_c_rows_pre = 0);
+
+  -- lega a classifica con lo stesso turno di partenza
+  insert into public.leagues (name, visibility, start_round, created_by)
+  values ('Test classifica libera ST10', 'private', v_open, '00000000-0000-4000-8000-0000000000d1') returning id into v_lc;
+  insert into public.league_members (league_id, user_id, role) values (v_lc, '00000000-0000-4000-8000-0000000000d1', 'owner');
+  v_codec := public.generate_invite_code();
+  insert into public.league_invites (league_id, code) values (v_lc, v_codec);
+
+  -- il turno si blocca: kickoff anticipati
+  update public.matches set kickoff = kickoff - interval '60 days' where round_number = v_open;
+
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000f1';
+  select outcome into v_join_closed from public.join_private_league(v_code1);
+  select outcome into v_join_class from public.join_private_league(v_codec);
+  reset role;
+  select count(*) into v_members_l1 from public.league_members where league_id = v_l1;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 lega a scontri con turno di partenza bloccato: ingresso -> closed', 'closed', v_join_closed, v_join_closed = 'closed'),
+    ('ST10 ...e il membro non viene aggiunto', '2', v_members_l1::text, v_members_l1 = 2),
+    ('ST10 lega a classifica con turno di partenza bloccato: ingresso libero -> ok', 'ok', v_join_class, v_join_class = 'ok');
+
+  -- stato di una lega a classifica: nessuno stato scontri
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  select mode, status, home_state into v_cm, v_cs, v_chome from public.h2h_league_state(v_lc);
+  reset role;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 h2h_league_state su lega a classifica: mode classifica, nessuno stato scontri', 'classifica/null/null', v_cm || '/' || coalesce(v_cs,'null') || '/' || coalesce(v_chome,'null'), v_cm = 'classifica' and v_cs is null and v_chome is null);
+
+  -- calendario a cerchio, 3 membri (dispari): D, E, F
+  insert into public.leagues (name, visibility, mode, start_round, created_by)
+  values ('Test scontri tre membri ST10', 'private', 'scontri', v_open, '00000000-0000-4000-8000-0000000000d1') returning id into v_l3;
+  insert into public.league_members (league_id, user_id, role) values
+    (v_l3, '00000000-0000-4000-8000-0000000000d1', 'owner'),
+    (v_l3, '00000000-0000-4000-8000-0000000000e1', 'member'),
+    (v_l3, '00000000-0000-4000-8000-0000000000f1', 'member');
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  perform * from public.h2h_league_state(v_l3);
+  select count(*) into v_d_pairs from public.league_h2h_pairings where league_id = v_l3;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000c1';
+  select count(*) into v_c_state from public.h2h_league_state(v_l3);
+  select count(*) into v_c_pairs from public.league_h2h_pairings where league_id = v_l3;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
+  perform * from public.h2h_league_state(v_l3);
+  reset role;
+  select status, cycle_length, member_count into v_sched_status, v_sched_cycle, v_sched_members from public.league_h2h_schedule where league_id = v_l3;
+  select count(*), count(*) filter (where user_b is null) into v_pairs, v_rests from public.league_h2h_pairings where league_id = v_l3;
+  v_pairs_after := v_pairs;
+  select count(*) into v_bad_round from (select round_number from public.league_h2h_pairings where league_id = v_l3 group by round_number having count(*) filter (where user_b is null) <> 1 or count(*) <> 2) q;
+  select count(*) into v_dup from (
+    select round_number, u from (
+      select round_number, user_a as u from public.league_h2h_pairings where league_id = v_l3
+      union all select round_number, user_b from public.league_h2h_pairings where league_id = v_l3 and user_b is not null) x
+    group by round_number, u having count(*) > 1) q;
+  select count(distinct user_a) into v_first3 from public.league_h2h_pairings where league_id = v_l3 and user_b is null and round_number between v_open and v_open + 2;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 calendario 3 membri: avviata, ciclo di 3 turni, 3 membri', 'avviata/3/3', v_sched_status || '/' || v_sched_cycle || '/' || v_sched_members, v_sched_status = 'avviata' and v_sched_cycle = 3 and v_sched_members = 3),
+    ('ST10 calendario 3 membri: 2 abbinamenti per turno dal turno di partenza al 38', (v_nrounds * 2)::text, v_pairs::text, v_pairs = v_nrounds * 2),
+    ('ST10 calendario 3 membri: un solo riposo a turno', v_nrounds::text, v_rests::text, v_rests = v_nrounds and v_bad_round = 0),
+    ('ST10 calendario 3 membri: nessuno compare due volte nello stesso turno', '0', v_dup::text, v_dup = 0),
+    ('ST10 calendario 3 membri: ognuno riposa esattamente una volta nel primo ciclo', '3', v_first3::text, v_first3 = 3),
+    ('ST10 calendario: una seconda lettura non lo cambia (idempotente)', v_pairs::text, v_pairs_after::text, (select count(*) from public.league_h2h_pairings where league_id = v_l3) = v_pairs),
+    ('ST10 calendario: il membro D vede tutti gli abbinamenti', (v_nrounds * 2)::text, v_d_pairs::text, v_d_pairs = v_nrounds * 2),
+    ('ST10 calendario: un non membro non vede stato ne'' abbinamenti', '0/0', v_c_state || '/' || v_c_pairs, v_c_state = 0 and v_c_pairs = 0);
+
+  -- lega a scontri con un solo membro al blocco: non avviata
+  insert into public.leagues (name, visibility, mode, start_round, created_by)
+  values ('Test scontri un membro ST10', 'private', 'scontri', v_open, '00000000-0000-4000-8000-0000000000d1') returning id into v_ls;
+  insert into public.league_members (league_id, user_id, role) values (v_ls, '00000000-0000-4000-8000-0000000000d1', 'owner');
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  select status, home_state into v_ls_status, v_ls_home from public.h2h_league_state(v_ls);
+  select count(*) into v_ls_pairs from public.league_h2h_pairings where league_id = v_ls;
+  select count(*) into v_ls_sched from public.league_h2h_schedule where league_id = v_ls and status = 'non_avviata';
+  -- lega a due membri (v_l1, bloccata dopo l'ingresso di E): avviata, un abbinamento a turno, nessun riposo
+  select status into v_l1_status from public.h2h_league_state(v_l1);
+  select count(*), count(*) filter (where user_b is null) into v_l1_pairs, v_l1_rests from public.league_h2h_pairings where league_id = v_l1;
+  reset role;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 un solo membro al blocco: non_avviata, nessun abbinamento', 'non_avviata/non_avviata/0/1', v_ls_status || '/' || v_ls_home || '/' || v_ls_pairs || '/' || v_ls_sched, v_ls_status = 'non_avviata' and v_ls_home = 'non_avviata' and v_ls_pairs = 0 and v_ls_sched = 1),
+    ('ST10 due membri: avviata, un abbinamento a turno, nessun riposo', 'avviata/' || v_nrounds || '/0', v_l1_status || '/' || v_l1_pairs || '/' || v_l1_rests, v_l1_status = 'avviata' and v_l1_pairs = v_nrounds and v_l1_rests = 0);
+
+  -- privilegi: anon non chiama le funzioni; authenticated non chiama le interne
+  begin set local role anon; perform public.create_h2h_league('Test anon ST10', v_open); reset role;
+  exception when insufficient_privilege then reset role; v_rej_anon_create := true; end;
+  begin set local role anon; perform * from public.h2h_league_state(v_l3); reset role;
+  exception when insufficient_privilege then reset role; v_rej_anon_state := true; end;
+  begin set local role authenticated; set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1'; perform public.round_live_number(); reset role;
+  exception when insufficient_privilege then reset role; v_rej_live := true; end;
+  begin set local role authenticated; set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1'; perform public.h2h_is_locked(v_l3); reset role;
+  exception when insufficient_privilege then reset role; v_rej_locked := true; end;
+  begin set local role authenticated; set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1'; perform public.h2h_generate_schedule(v_l3); reset role;
+  exception when insufficient_privilege then reset role; v_rej_gen := true; end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST10 anon: create_h2h_league rifiutata', 'rifiutato', v_rej_anon_create::text, v_rej_anon_create),
+    ('ST10 anon: h2h_league_state rifiutata', 'rifiutato', v_rej_anon_state::text, v_rej_anon_state),
+    ('ST10 authenticated: round_live_number (interna) rifiutata', 'rifiutato', v_rej_live::text, v_rej_live),
+    ('ST10 authenticated: h2h_is_locked (interna) rifiutata', 'rifiutato', v_rej_locked::text, v_rej_locked),
+    ('ST10 authenticated: h2h_generate_schedule (interna) rifiutata', 'rifiutato', v_rej_gen::text, v_rej_gen);
+end $$;
+
 -- P6f: league_leaderboard con start_round = primo turno APERTO, utenti
 -- sintetici D ed E (creati in cima, vivono solo in questa transazione) e
 -- risultati FINTI scritti sulle partite del turno aperto (annullati dal

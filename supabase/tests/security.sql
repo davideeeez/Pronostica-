@@ -1626,6 +1626,70 @@ begin
     ('ST8e al massimo un riposo per turno', 'rifiutato', v_rest2::text, v_rest2);
 end $$;
 
+-- ST9: matrice EXECUTE su TUTTE le funzioni di public (come ST1 per le tabelle). Per ogni funzione la
+-- lista esplicita di chi puo' eseguirla fra anon, authenticated e PUBLIC (che rende eseguibile a tutti).
+-- Una funzione non elencata deve risultare eseguibile da NESSUNO; una funzione con piu' permessi di
+-- quelli attesi fa fallire il test. Le funzioni delle migrazioni 03a/04 sono gia' elencate (ancora assenti).
+do $$
+declare
+  v_expected jsonb := '{
+    "create_league": "authenticated",
+    "current_round_number": "authenticated",
+    "delete_league": "authenticated",
+    "generate_invite_code": "",
+    "is_league_member": "authenticated",
+    "is_league_owner": "authenticated",
+    "join_private_league": "authenticated",
+    "join_public_league": "authenticated",
+    "league_leaderboard": "authenticated",
+    "leave_league": "authenticated",
+    "list_public_leagues": "authenticated",
+    "matches_default_status": "",
+    "open_round_number": "authenticated",
+    "prediction_points": "authenticated",
+    "predictions_prevent_identity_change": "",
+    "recompute_round_locks_at": "",
+    "regenerate_invite_code": "authenticated",
+    "remove_league_member": "authenticated",
+    "round_is_open": "authenticated",
+    "shares_league_with": "authenticated",
+    "leagues_mode_immutable": "",
+    "league_h2h_pairings_check": "",
+    "round_play_state": "authenticated",
+    "round_live_number": "",
+    "h2h_is_locked": "",
+    "create_h2h_league": "authenticated",
+    "h2h_generate_schedule": "",
+    "h2h_league_state": "authenticated",
+    "h2h_pairings": "authenticated",
+    "h2h_results": "authenticated",
+    "h2h_standings": "authenticated",
+    "h2h_match_detail": "authenticated",
+    "h2h_season_winner_ok": "authenticated",
+    "h2h_season_scorer_ok": "authenticated",
+    "h2h_season_ready": "authenticated"
+  }';
+  r record;
+  v_act text; v_exp text; v_bad text := ''; v_n int := 0;
+begin
+  for r in
+    select p.oid, p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as sig, p.proname
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prokind in ('f', 'p') order by p.proname, 2
+  loop
+    v_n := v_n + 1;
+    v_act := concat_ws(',',
+      case when has_function_privilege('anon', r.oid, 'EXECUTE') then 'anon' end,
+      case when has_function_privilege('authenticated', r.oid, 'EXECUTE') then 'authenticated' end,
+      case when has_function_privilege('public', r.oid, 'EXECUTE') then 'PUBLIC' end);
+    v_exp := coalesce(v_expected ->> r.proname, '');
+    if v_act <> v_exp then v_bad := v_bad || r.sig || ': eseguibile da [' || v_act || '] atteso [' || v_exp || '] | '; end if;
+  end loop;
+  insert into test_results(test, expected, actual, passed)
+    values ('ST9 matrice EXECUTE di tutte le funzioni di public (' || v_n || ' funzioni)', 'nessuno scostamento', coalesce(nullif(v_bad,''),'nessuno scostamento'), v_bad = '');
+end $$;
+
+
 -- ========== Riepilogo ==========
 
 -- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):

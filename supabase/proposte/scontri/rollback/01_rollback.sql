@@ -100,3 +100,9 @@ grant insert, update, delete, truncate, references, trigger on public.calendar, 
 -- (01c) MAINTAIN su tutte le relazioni che lo avevano per authenticated in produzione prima di 01c.
 grant maintain on public.matches, public.rounds, public.predictions, public.profiles,
   public.calendar, public.prediction_scores, public.general_leaderboard to authenticated;
+
+-- (01d) EXECUTE come in produzione prima di 01d: PUBLIC, anon e authenticated su queste quattro funzioni.
+grant execute on function public.prediction_points(integer, integer, integer, integer) to public, anon, authenticated;
+grant execute on function public.round_is_open(text) to public, anon, authenticated;
+grant execute on function public.matches_default_status() to public, anon, authenticated;
+grant execute on function public.predictions_prevent_identity_change() to public, anon, authenticated;

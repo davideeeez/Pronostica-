@@ -138,6 +138,11 @@ nel frattempo si gioca solo in leghe.
   scontri e quindi i calendari delle leghe a scontri avviate. Dalla prima lega
   reale a scontri non si torna indietro: si corregge solo in avanti, con nuove
   migrazioni.
+- Funzioni: il test ST9 di `security.sql` è una matrice con la lista esplicita di
+  chi può eseguire ciascuna funzione di `public` (anon, authenticated, PUBLIC).
+  Ogni funzione nuova va aggiunta alla lista e, per default Supabase, nasce
+  eseguibile da PUBLIC/anon: serve un `revoke execute ... from public, anon`
+  esplicito (il revoke globale dei default per le funzioni NON è applicato).
 - Privilegi di default di Supabase: le tabelle nuove in `public` nascono con
   tutti i privilegi (incluso MAINTAIN) per `anon`, `authenticated` e
   `service_role` (`pg_default_acl`); ogni migrazione che crea una tabella o
@@ -154,7 +159,7 @@ nel frattempo si gioca solo in leghe.
 ## Leghe a scontri diretti — IN COSTRUZIONE
 
 Stato delle migrazioni (proposte in `supabase/proposte/scontri/`): **applicate**
-01 (stato partite), 01b, 01c (privilegi), 02 (schema). **Da applicare**: 03a
+01 (stato partite), 01b, 01c, 01d (privilegi), 02 (schema). **Da applicare**: 03a
 (generazione e blocco), 03b (uscite/rimozioni), 04 (letture), poi i privilegi
 di default (`defaults_privilegi_PROPOSTA.sql`). Non applicare 03/04 durante le
 partite né dopo il blocco di un turno con leghe a scontri in gioco.

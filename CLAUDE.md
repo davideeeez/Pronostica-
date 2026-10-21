@@ -136,6 +136,10 @@ nel frattempo si gioca solo in leghe.
   una lega a scontri avviata blocca la cancellazione del profilo dei suoi
   membri. Da decidere prima dell'apertura pubblica e degli store (cancellazione
   account obbligatoria).
+- `supabase/tests/security.sql`, test P2d: dipende dal pronostico reale
+  dell'utente B sul turno aperto (oggi aggira il conflitto con `on conflict do
+  nothing`). Da riscrivere con utenti sintetici, come richiede la regola sui
+  test.
 - Nessun limite di leghe per utente né di membri per lega (scelta di
   prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
   nascondimento — da chiudere prima di apertura pubblica.

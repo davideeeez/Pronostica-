@@ -91,3 +91,8 @@ grant insert, update, delete, truncate, references, trigger on public.matches to
 grant insert, update, delete, truncate, references, trigger on public.rounds to authenticated;
 grant delete, truncate, references, trigger on public.predictions to authenticated;
 grant delete, truncate, references, trigger on public.profiles to authenticated;
+
+-- (01b) privilegi sulle viste come in produzione prima di 01b: authenticated aveva anche
+-- INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER su calendar e prediction_scores (SELECT incluso),
+-- e tutto tranne SELECT su general_leaderboard.
+grant insert, update, delete, truncate, references, trigger on public.calendar, public.prediction_scores, public.general_leaderboard to authenticated;

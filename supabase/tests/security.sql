@@ -1452,6 +1452,24 @@ begin
 end $$;
 
 
+-- ST7 (migrazione 01b): sulle viste authenticated puo' solo leggere (e general_leaderboard
+-- resta senza SELECT, sospesa fino a gennaio); nessuna scrittura per nessuno.
+do $$
+declare v text; p text; v_bad text := '';
+begin
+  foreach v in array array['calendar','prediction_scores','general_leaderboard'] loop
+    foreach p in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
+      if has_table_privilege('authenticated', 'public.' || v, p) then v_bad := v_bad || v || ':' || p || ' '; end if;
+    end loop;
+  end loop;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST7 viste: authenticated senza privilegi di scrittura', 'nessuno', coalesce(nullif(v_bad,''),'nessuno'), v_bad = ''),
+    ('ST7 calendar: authenticated SELECT si', 'true', has_table_privilege('authenticated','public.calendar','SELECT')::text, has_table_privilege('authenticated','public.calendar','SELECT')),
+    ('ST7 prediction_scores: authenticated SELECT si', 'true', has_table_privilege('authenticated','public.prediction_scores','SELECT')::text, has_table_privilege('authenticated','public.prediction_scores','SELECT')),
+    ('ST7 general_leaderboard: authenticated SELECT no', 'false', has_table_privilege('authenticated','public.general_leaderboard','SELECT')::text, not has_table_privilege('authenticated','public.general_leaderboard','SELECT'));
+end $$;
+
+
 -- ========== Riepilogo ==========
 
 -- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):

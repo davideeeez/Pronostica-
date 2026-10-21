@@ -99,16 +99,14 @@ nel frattempo si gioca solo in leghe.
   sempre (vista `calendar`, frontend, leghe, SQL) — **mai ridefinire la logica
   altrove**, nemmeno in una nuova query o vista:
   - `current_round_number()` = primo turno non completato: il più basso con
-    almeno una partita senza risultato, altrimenti l'ultimo. Può essere già
-    chiuso ai pronostici (partite in corso, recuperi). (Con la migrazione
-    scontri diventa "almeno una partita non `finita`".)
+    almeno una partita non `finita` (stato in `matches.status`), altrimenti
+    l'ultimo. Può essere già chiuso ai pronostici (partite in corso, recuperi).
   - `open_round_number()` = turno aperto ai pronostici: il più basso con
     `locks_at` nel futuro, `NULL` se non ce n'è nessuno. È il turno su cui si
     pronostica: Home, Pronostici, `create_league` (turno di partenza ≥ turno
     aperto) e stato `corrente` della vista `calendar`.
-  - Stati della vista `calendar`: `giocato` (tutte le partite hanno un
-    risultato), `corrente` (= `open_round_number()`, uno solo, può non
-    esserci), `in_corso` (chiuso ma con partite senza risultato), `futuro`.
+  - Stati della vista `calendar`: `giocato` (tutte le partite `finita`), `corrente` (= `open_round_number()`, uno solo, può non
+    esserci), `in_corso` (chiuso ma con partite non `finita`), `futuro`.
     Il frontend gestisce l'assenza del turno corrente con uno stato "in attesa
     del prossimo turno", non con un errore.
 - La lega selezionata (e l'elenco delle mie leghe) ha un'unica fonte nel
@@ -153,7 +151,13 @@ nel frattempo si gioca solo in leghe.
   prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
   nascondimento — da chiudere prima di apertura pubblica.
 
-## Leghe a scontri diretti — DA COSTRUIRE (proposta in `supabase/proposte/scontri/`, non applicata)
+## Leghe a scontri diretti — IN COSTRUZIONE
+
+Stato delle migrazioni (proposte in `supabase/proposte/scontri/`): **applicate**
+01 (stato partite), 01b, 01c (privilegi), 02 (schema). **Da applicare**: 03a
+(generazione e blocco), 03b (uscite/rimozioni), 04 (letture), poi i privilegi
+di default (`defaults_privilegi_PROPOSTA.sql`). Non applicare 03/04 durante le
+partite né dopo il blocco di un turno con leghe a scontri in gioco.
 
 MODALITÀ E CREAZIONE
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta

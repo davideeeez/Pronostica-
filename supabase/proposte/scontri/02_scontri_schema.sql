@@ -21,6 +21,8 @@ begin
 end;
 $$;
 
+revoke all on function public.leagues_mode_immutable() from public, anon, authenticated;
+
 create trigger leagues_mode_immutable
 before update on public.leagues
 for each row execute function public.leagues_mode_immutable();
@@ -70,6 +72,8 @@ begin
   return null;
 end;
 $$;
+
+revoke all on function public.league_h2h_pairings_check() from public, anon, authenticated;
 
 create trigger league_h2h_pairings_check
 after insert on public.league_h2h_pairings

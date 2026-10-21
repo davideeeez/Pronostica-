@@ -1488,6 +1488,144 @@ begin
 end $$;
 
 
+-- ========== Migrazione 02: schema leghe a scontri diretti ==========
+-- Utenti sintetici D, E (membri) e C (estraneo), gia' creati in cima; lega e abbinamenti scritti
+-- da amministratore dentro la transazione (annullata dal rollback finale).
+
+-- ST8a: tipo di lega (default, immutabilita', solo privata)
+do $$
+declare
+  v_league uuid;
+  v_default text;
+  v_rej_change boolean := false; v_rej_public boolean := false;
+  v_old_default int;
+begin
+  select count(*) into v_old_default from public.leagues where mode <> 'classifica' and created_at < now() - interval '1 minute';
+  insert into public.leagues (name, visibility, start_round, created_by)
+  values ('Test default mode ST8', 'public', coalesce(public.open_round_number(), (select max(round_number) from public.rounds)), '00000000-0000-4000-8000-0000000000d1')
+  returning id, mode into v_league, v_default;
+  insert into public.leagues (name, visibility, mode, start_round, created_by)
+  values ('Test scontri privata ST8', 'private', 'scontri', coalesce(public.open_round_number(), (select max(round_number) from public.rounds)), '00000000-0000-4000-8000-0000000000d1')
+  returning id into v_league;
+  begin
+    update public.leagues set mode = 'classifica' where id = v_league;
+  exception when raise_exception then v_rej_change := true;
+  end;
+  begin
+    insert into public.leagues (name, visibility, mode, start_round, created_by)
+    values ('Test scontri pubblica ST8', 'public', 'scontri', coalesce(public.open_round_number(), (select max(round_number) from public.rounds)), '00000000-0000-4000-8000-0000000000d1');
+  exception when check_violation then v_rej_public := true;
+  end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST8a lega creata senza mode: default classifica', 'classifica', v_default, v_default = 'classifica'),
+    ('ST8a il tipo di lega non si cambia', 'rifiutato', v_rej_change::text, v_rej_change),
+    ('ST8a scontri solo in leghe private', 'rifiutato', v_rej_public::text, v_rej_public);
+end $$;
+
+-- ST8b: RLS attiva e policy solo SELECT TO authenticated sulle due tabelle nuove
+do $$
+declare v_rls int; v_pol int; v_bad int;
+begin
+  select count(*) into v_rls from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname in ('league_h2h_schedule','league_h2h_pairings') and c.relrowsecurity;
+  select count(*) into v_pol from pg_policies where schemaname = 'public' and tablename in ('league_h2h_schedule','league_h2h_pairings');
+  select count(*) into v_bad from pg_policies where schemaname = 'public' and tablename in ('league_h2h_schedule','league_h2h_pairings')
+    and (cmd <> 'SELECT' or roles::text <> '{authenticated}');
+  insert into test_results(test, expected, actual, passed) values
+    ('ST8b RLS attiva su schedule e pairings', '2', v_rls::text, v_rls = 2),
+    ('ST8b una policy SELECT per tabella', '2', v_pol::text, v_pol = 2),
+    ('ST8b nessuna policy diversa da SELECT TO authenticated', '0', v_bad::text, v_bad = 0);
+end $$;
+
+-- ST8c/d/e: accesso, visibilita' e vincoli con lega sintetica (D vs E, C estraneo)
+do $$
+declare
+  v_league uuid;
+  v_d int; v_e int; v_c int; v_sd int; v_sc int;
+  v_rej_ins boolean := false; v_rej_upd boolean := false; v_rej_sch boolean := false; v_rej_anon boolean := false;
+  v_self boolean := false; v_twice boolean := false; v_rest2 boolean := false; v_round int := 1;
+begin
+  select id into v_league from public.leagues where name = 'Test scontri privata ST8';
+  insert into public.league_members (league_id, user_id, role) values
+    (v_league, '00000000-0000-4000-8000-0000000000d1', 'owner'),
+    (v_league, '00000000-0000-4000-8000-0000000000e1', 'member');
+  insert into public.league_h2h_schedule (league_id, status, start_round, member_count, cycle_length)
+  values (v_league, 'avviata', 8, 2, 1);
+  insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b)
+  values (v_league, 8, 0, '00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000e1');
+
+  -- visibilita' per ruolo
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  select count(*) into v_d from public.league_h2h_pairings where league_id = v_league;
+  select count(*) into v_sd from public.league_h2h_schedule where league_id = v_league;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000e1';
+  select count(*) into v_e from public.league_h2h_pairings where league_id = v_league;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000c1';
+  select count(*) into v_c from public.league_h2h_pairings where league_id = v_league;
+  select count(*) into v_sc from public.league_h2h_schedule where league_id = v_league;
+  reset role;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST8c membro D vede l''abbinamento', '1', v_d::text, v_d = 1),
+    ('ST8c membro E vede l''abbinamento', '1', v_e::text, v_e = 1),
+    ('ST8c membro D vede il calendario', '1', v_sd::text, v_sd = 1),
+    ('ST8c non membro C: 0 abbinamenti', '0', v_c::text, v_c = 0),
+    ('ST8c non membro C: 0 righe di calendario', '0', v_sc::text, v_sc = 0);
+
+  -- scritture dirette da authenticated: rifiutate
+  begin
+    set local role authenticated;
+    set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+    insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b) values (v_league, 9, 0, '00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000e1');
+    reset role;
+  exception when insufficient_privilege then reset role; v_rej_ins := true;
+  end;
+  begin
+    set local role authenticated;
+    set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+    update public.league_h2h_pairings set user_b = '00000000-0000-4000-8000-0000000000c1' where league_id = v_league;
+    reset role;
+  exception when insufficient_privilege then reset role; v_rej_upd := true;
+  end;
+  begin
+    set local role authenticated;
+    set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+    insert into public.league_h2h_schedule (league_id, status, start_round, member_count, cycle_length) values (v_league, 'avviata', 8, 2, 1);
+    reset role;
+  exception when insufficient_privilege then reset role; v_rej_sch := true;
+  end;
+  begin
+    set local role anon;
+    perform count(*) from public.league_h2h_pairings;
+    reset role;
+  exception when insufficient_privilege then reset role; v_rej_anon := true;
+  end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST8c authenticated: insert diretto su pairings rifiutato', 'rifiutato', v_rej_ins::text, v_rej_ins),
+    ('ST8c authenticated: update diretto su pairings rifiutato', 'rifiutato', v_rej_upd::text, v_rej_upd),
+    ('ST8c authenticated: insert diretto su schedule rifiutato', 'rifiutato', v_rej_sch::text, v_rej_sch),
+    ('ST8c anon: select su pairings rifiutato', 'rifiutato', v_rej_anon::text, v_rej_anon);
+
+  -- vincoli sui dati (scritture da amministratore)
+  begin
+    insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b) values (v_league, 9, 0, '00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d1');
+  exception when check_violation then v_self := true;
+  end;
+  begin
+    insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b) values (v_league, 8, 1, '00000000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-0000000000c1');
+  exception when others then v_twice := true;
+  end;
+  insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b) values (v_league, 10, 0, '00000000-0000-4000-8000-0000000000d1', null);
+  begin
+    insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b) values (v_league, 10, 1, '00000000-0000-4000-8000-0000000000e1', null);
+  exception when unique_violation then v_rest2 := true;
+  end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST8e un membro non gioca contro se stesso', 'rifiutato', v_self::text, v_self),
+    ('ST8e un membro non compare due volte nello stesso turno', 'rifiutato', v_twice::text, v_twice),
+    ('ST8e al massimo un riposo per turno', 'rifiutato', v_rest2::text, v_rest2);
+end $$;
+
 -- ========== Riepilogo ==========
 
 -- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):

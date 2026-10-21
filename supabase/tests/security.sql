@@ -1282,6 +1282,105 @@ begin
     ('ST11 lega a classifica: restano solo il creatore', '1', v_members_cls::text, v_members_cls = 1);
 end $$;
 
+-- ========== Migrazione 04: letture degli scontri (elenco, risultati, classifica, dettaglio) ==========
+-- Turno bloccato derivato dal DB (il piu' basso gia' bloccato con 10 partite); risultati e stati delle partite
+-- scritti dentro la transazione (annullata dal rollback finale). D vince su E, A1 riposa.
+do $$
+declare
+  v_r int; v_m text[]; v_l uuid;
+  v_st1 text; v_prova int; v_fina int; v_provb int; v_finb int; v_pa1 int; v_pb1 int;
+  v_zero1 boolean; v_det10_pa int; v_det10_pfa int; v_det10_pb int; v_det10_pfb int; v_det10_lock boolean; v_det1_pb int; v_det1_pfb int; v_det3_pred int; v_det3_pb int;
+  v_st2 text; v_fina2 int; v_pa2 int; v_pb2 int; v_rest_is boolean; v_rest_pts int; v_rest_state text;
+  v_d record; v_e record; v_a record; v_tied_e boolean; v_tied_a boolean; v_final boolean;
+  v_c_p int; v_c_r int; v_c_s int; v_c_d int; v_mine boolean; v_first_rest boolean;
+  v_rej1 boolean := false; v_rej2 boolean := false; v_rej3 boolean := false; v_rej4 boolean := false;
+begin
+  -- il turno bloccato PIU' BASSO con 10 partite: non interferisce con i turni usati dagli altri test (P6f usa gli ultimi)
+  select min(r.round_number) into v_r from public.rounds r
+   where r.locks_at <= now() and (select count(*) from public.matches m where m.round_number = r.round_number) = 10;
+  select array_agg(id order by kickoff, id) into v_m from public.matches where round_number = v_r;
+  update public.matches set status = 'non_iniziata', home_goals = null, away_goals = null where round_number = v_r;
+  insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000a1') on conflict do nothing;
+  insert into public.profiles (id, username, crest_pattern) values ('00000000-0000-4000-8000-0000000000a1', 'utente_test_h', 'star') on conflict do nothing;
+  insert into public.leagues (name, visibility, mode, start_round, created_by)
+  values ('Test scontri risultati ST12', 'private', 'scontri', v_r, '00000000-0000-4000-8000-0000000000d1') returning id into v_l;
+  insert into public.league_members (league_id, user_id, role) values
+    (v_l, '00000000-0000-4000-8000-0000000000d1', 'owner'),
+    (v_l, '00000000-0000-4000-8000-0000000000e1', 'member'),
+    (v_l, '00000000-0000-4000-8000-0000000000a1', 'member');
+  insert into public.league_h2h_schedule (league_id, status, start_round, member_count, cycle_length) values (v_l, 'avviata', v_r, 3, 3);
+  insert into public.league_h2h_pairings (league_id, round_number, slot, user_a, user_b) values
+    (v_l, v_r, 0, '00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000e1'),
+    (v_l, v_r, 1, '00000000-0000-4000-8000-0000000000a1', null);
+  -- D: esatto (1-0) su tutte e 10; E: sbagliato (0-1) sulle partite 3..9, nessun pronostico sulle partite 1, 2 e 10; A1 (riposo): nessuno
+  insert into public.predictions (user_id, match_id, home_goals, away_goals)
+    select '00000000-0000-4000-8000-0000000000d1', unnest(v_m), 1, 0;
+  insert into public.predictions (user_id, match_id, home_goals, away_goals)
+    select '00000000-0000-4000-8000-0000000000e1', unnest(v_m[3:9]), 0, 1;
+
+  -- fase 1: 9 partite finite 1-0, la decima IN CORSO 1-0 (turno non concluso)
+  update public.matches set status = 'finita', home_goals = 1, away_goals = 0 where id = any (v_m[1:9]);
+  update public.matches set status = 'in_corso', home_goals = 1, away_goals = 0 where id = v_m[10];
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  select round_state, prov_a, final_a, prov_b, final_b, h2h_pts_a, h2h_pts_b into v_st1, v_prova, v_fina, v_provb, v_finb, v_pa1, v_pb1
+    from public.h2h_results(v_l) where slot = 0;
+  select bool_and(pt_scontri = 0 and pt_totali = 0 and giocati = 0 and esatti = 0 and esiti = 0) into v_zero1 from public.h2h_standings(v_l);
+  select points_a, points_final_a, points_b, points_final_b, round_locked into v_det10_pa, v_det10_pfa, v_det10_pb, v_det10_pfb, v_det10_lock
+    from public.h2h_match_detail(v_l, v_r, 0::smallint) where match_id = v_m[10];
+  select points_b, points_final_b into v_det1_pb, v_det1_pfb from public.h2h_match_detail(v_l, v_r, 0::smallint) where match_id = v_m[1];
+  select pred_home_b, points_b into v_det3_pred, v_det3_pb from public.h2h_match_detail(v_l, v_r, 0::smallint) where match_id = v_m[3];
+  reset role;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST12 turno non concluso: stato in_corso, nessun punto scontri assegnato', 'in_corso/NULL/NULL', v_st1 || '/' || coalesce(v_pa1::text,'NULL') || '/' || coalesce(v_pb1::text,'NULL'), v_st1 = 'in_corso' and v_pa1 is null and v_pb1 is null),
+    ('ST12 punti provvisori (con la partita in corso) e definitivi (solo finite) di D', '30/27', v_prova || '/' || v_fina, v_prova = 30 and v_fina = 27),
+    ('ST12 E: nessun punto (sbagliato o non pronosticato)', '0/0', v_provb || '/' || v_finb, v_provb = 0 and v_finb = 0),
+    ('ST12 classifica a turno non concluso: tutto a zero', 'true', coalesce(v_zero1::text,'NULL'), v_zero1),
+    ('ST12 dettaglio, partita in corso con pronostico: provvisori 3, definitivi NULL', '3/NULL', coalesce(v_det10_pa::text,'NULL') || '/' || coalesce(v_det10_pfa::text,'NULL'), v_det10_pa = 3 and v_det10_pfa is null),
+    ('ST12 dettaglio, partita in corso senza pronostico dell''avversario: NULL/NULL', 'NULL/NULL', coalesce(v_det10_pb::text,'NULL') || '/' || coalesce(v_det10_pfb::text,'NULL'), v_det10_pb is null and v_det10_pfb is null),
+    ('ST12 dettaglio, partita finita senza pronostico: 0/0 (mai NULL)', '0/0', coalesce(v_det1_pb::text,'NULL') || '/' || coalesce(v_det1_pfb::text,'NULL'), v_det1_pb = 0 and v_det1_pfb = 0),
+    ('ST12 dettaglio: il pronostico dell''avversario si vede dopo il blocco (0-1 sbagliato = 0 punti)', '0/0', coalesce(v_det3_pred::text,'NULL') || '/' || coalesce(v_det3_pb::text,'NULL'), v_det3_pred = 0 and v_det3_pb = 0),
+    ('ST12 dettaglio: round_locked vero per il turno bloccato', 'true', coalesce(v_det10_lock::text,'NULL'), v_det10_lock);
+
+  -- fase 2: tutte finite -> turno concluso
+  update public.matches set status = 'finita' where id = v_m[10];
+  set local role authenticated;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000d1';
+  select round_state, final_a, h2h_pts_a, h2h_pts_b into v_st2, v_fina2, v_pa2, v_pb2 from public.h2h_results(v_l) where slot = 0;
+  select is_rest, h2h_pts_a, round_state into v_rest_is, v_rest_pts, v_rest_state from public.h2h_results(v_l) where slot = 1;
+  select * into v_d from public.h2h_standings(v_l) where user_id = '00000000-0000-4000-8000-0000000000d1';
+  select * into v_e from public.h2h_standings(v_l) where user_id = '00000000-0000-4000-8000-0000000000e1';
+  select * into v_a from public.h2h_standings(v_l) where user_id = '00000000-0000-4000-8000-0000000000a1';
+  select is_final into v_final from public.h2h_standings(v_l) limit 1;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+  select is_mine, is_rest into v_mine, v_first_rest from public.h2h_pairings(v_l) where round_number = v_r order by is_mine desc, slot limit 1;
+  set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000c1';
+  select count(*) into v_c_p from public.h2h_pairings(v_l);
+  select count(*) into v_c_r from public.h2h_results(v_l);
+  select count(*) into v_c_s from public.h2h_standings(v_l);
+  select count(*) into v_c_d from public.h2h_match_detail(v_l, v_r, 0::smallint);
+  reset role;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST12 turno concluso: D batte E (3 a 0 in classifica)', 'concluso/30/3/0', v_st2 || '/' || v_fina2 || '/' || v_pa2 || '/' || v_pb2, v_st2 = 'concluso' and v_fina2 = 30 and v_pa2 = 3 and v_pb2 = 0),
+    ('ST12 riposo: 0 punti scontri e riga di riposo segnalata', 'true/0/concluso', v_rest_is::text || '/' || v_rest_pts || '/' || v_rest_state, v_rest_is and v_rest_pts = 0 and v_rest_state = 'concluso'),
+    ('ST12 classifica D: 3 pt scontri, 1 giocato/1 vinto, 30 pt totali, 10 esatti, primo', '3/1/1/30/10/1/false', v_d.pt_scontri || '/' || v_d.giocati || '/' || v_d.vinti || '/' || v_d.pt_totali || '/' || v_d.esatti || '/' || v_d.rank || '/' || v_d.tied,
+       v_d.pt_scontri = 3 and v_d.giocati = 1 and v_d.vinti = 1 and v_d.pt_totali = 30 and v_d.esatti = 10 and v_d.rank = 1 and not v_d.tied),
+    ('ST12 classifica E: 0 pt scontri, 1 giocato/1 perso, 0 pt totali', '0/1/1/0', v_e.pt_scontri || '/' || v_e.giocati || '/' || v_e.persi || '/' || v_e.pt_totali, v_e.pt_scontri = 0 and v_e.giocati = 1 and v_e.persi = 1 and v_e.pt_totali = 0),
+    ('ST12 classifica A1 (riposo): 0 giocati, 1 riposo, 0 punti', '0/1/0', v_a.giocati || '/' || v_a.riposi || '/' || v_a.pt_scontri, v_a.giocati = 0 and v_a.riposi = 1 and v_a.pt_scontri = 0),
+    ('ST12 classifica: E e A1 pari su tutti i criteri -> stesso rank e tied', '2/2/true/true', v_e.rank || '/' || v_a.rank || '/' || v_e.tied || '/' || v_a.tied, v_e.rank = 2 and v_a.rank = 2 and v_e.tied and v_a.tied),
+    ('ST12 classifica: non definitiva (pronostici stagionali assenti)', 'false', v_final::text, not v_final),
+    ('ST12 elenco scontri: il mio per primo (riposo di A1)', 'true/true', v_mine::text || '/' || v_first_rest::text, v_mine and v_first_rest),
+    ('ST12 non membro C: 0 righe da elenco, risultati, classifica e dettaglio', '0/0/0/0', v_c_p || '/' || v_c_r || '/' || v_c_s || '/' || v_c_d, v_c_p = 0 and v_c_r = 0 and v_c_s = 0 and v_c_d = 0);
+
+  -- anon rifiutato sulle letture
+  begin set local role anon; perform * from public.h2h_results(v_l); reset role; exception when insufficient_privilege then reset role; v_rej1 := true; end;
+  begin set local role anon; perform * from public.h2h_standings(v_l); reset role; exception when insufficient_privilege then reset role; v_rej2 := true; end;
+  begin set local role anon; perform * from public.h2h_pairings(v_l); reset role; exception when insufficient_privilege then reset role; v_rej3 := true; end;
+  begin set local role anon; perform * from public.h2h_match_detail(v_l, v_r, 0::smallint); reset role; exception when insufficient_privilege then reset role; v_rej4 := true; end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST12 anon: h2h_results, standings, pairings, match_detail rifiutate', 'true/true/true/true', v_rej1::text || '/' || v_rej2::text || '/' || v_rej3::text || '/' || v_rej4::text, v_rej1 and v_rej2 and v_rej3 and v_rej4);
+end $$;
+
 -- P6f: league_leaderboard con start_round = primo turno APERTO, utenti
 -- sintetici D ed E (creati in cima, vivono solo in questa transazione) e
 -- risultati FINTI scritti sulle partite del turno aperto (annullati dal

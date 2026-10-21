@@ -160,8 +160,10 @@ nel frattempo si gioca solo in leghe.
 
 Stato delle migrazioni (proposte in `supabase/proposte/scontri/`): **applicate**
 01 (stato partite), 01b, 01c, 01d (privilegi), 02 (schema), 03a (generazione e
-blocco ingressi). **Da applicare**: 03b (uscite/rimozioni), 04 (letture), poi i privilegi
-di default (`defaults_privilegi_PROPOSTA.sql`). Non applicare 03/04 durante le
+blocco ingressi), 04 (risultati, classifica, dettaglio). **Da applicare**: 03b
+(uscite/rimozioni; si applica a mano dal SQL editor perché contiene DELETE e
+`apply_migration` va in timeout), poi i privilegi di default
+(`defaults_privilegi_PROPOSTA.sql`). Non applicare 03b durante le
 partite né dopo il blocco di un turno con leghe a scontri in gioco.
 
 MODALITÀ E CREAZIONE

@@ -143,11 +143,17 @@ nel frattempo si gioca solo in leghe.
   Ogni funzione nuova va aggiunta alla lista e, per default Supabase, nasce
   eseguibile da PUBLIC/anon: serve un `revoke execute ... from public, anon`
   esplicito (il revoke globale dei default per le funzioni NON è applicato).
-- Privilegi di default di Supabase: le tabelle nuove in `public` nascono con
-  tutti i privilegi (incluso MAINTAIN) per `anon`, `authenticated` e
-  `service_role` (`pg_default_acl`); ogni migrazione che crea una tabella o
-  vista deve revocarli esplicitamente (il test ST1 di `security.sql` fallisce
-  se una relazione ha privilegi non attesi).
+- Privilegi di default (ruolo `postgres`, schema `public`): dalla migrazione
+  `default_privilegi_tabelle_sequenze` (2026-10-25) tabelle, viste e sequenze
+  NUOVE nascono SENZA privilegi per `anon` e `authenticated` (restano
+  `postgres` e `service_role`): ogni migrazione deve concedere esplicitamente
+  ad `authenticated` solo ciò che serve (`grant select ... to authenticated`).
+  Il test ST13 di `security.sql` lo verifica; ST1 resta la rete di sicurezza
+  sulle relazioni esistenti. Rollback in
+  `supabase/proposte/scontri/rollback/defaults_tabelle_sequenze_rollback.sql`.
+  NON coperto: le funzioni nuove nascono ancora eseguibili da PUBLIC/anon (il
+  revoke globale `from public` non è applicato, scelta del 2026-10-21) e le
+  tabelle create dal ruolo `supabase_admin` (non usato dalle migrazioni).
 - `supabase/tests/security.sql`, test P2d: dipende dal pronostico reale
   dell'utente B sul turno aperto (oggi aggira il conflitto con `on conflict do
   nothing`). Da riscrivere con utenti sintetici, come richiede la regola sui
@@ -158,13 +164,14 @@ nel frattempo si gioca solo in leghe.
 
 ## Leghe a scontri diretti — IN COSTRUZIONE
 
-Stato delle migrazioni (proposte in `supabase/proposte/scontri/`): **applicate**
-01 (stato partite), 01b, 01c, 01d (privilegi), 02 (schema), 03a (generazione e
-blocco ingressi), 04 (risultati, classifica, dettaglio). **Da applicare**: 03b
-(uscite/rimozioni; si applica a mano dal SQL editor perché contiene DELETE e
-`apply_migration` va in timeout), poi i privilegi di default
-(`defaults_privilegi_PROPOSTA.sql`). Non applicare 03b durante le
-partite né dopo il blocco di un turno con leghe a scontri in gioco.
+Stato delle migrazioni (proposte in `supabase/proposte/scontri/`): **tutte
+applicate** — 01 (stato partite), 01b, 01c, 01d (privilegi), 02 (schema), 03a
+(generazione e blocco ingressi), 03b (uscite/rimozioni, applicata a mano dal SQL
+editor perché contiene DELETE e `apply_migration` va in timeout), 04 (risultati,
+classifica, dettaglio) e i privilegi di default di tabelle/sequenze. Database
+delle leghe a scontri completo; mancano i pronostici stagionali (criteri 3 e 4)
+e il frontend. Una migrazione con `DELETE` nel testo si applica a mano, non via
+`apply_migration`.
 
 MODALITÀ E CREAZIONE
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta

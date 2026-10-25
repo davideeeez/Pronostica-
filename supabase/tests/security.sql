@@ -2041,6 +2041,45 @@ end $$;
 
 -- ========== Riepilogo ==========
 
+-- ST13: privilegi di default degli oggetti NUOVI in public (migrazione
+-- default_privilegi_tabelle_sequenze). Una tabella, una vista e una sequenza create
+-- ora (dentro la transazione annullata) non devono dare nulla ad anon/authenticated;
+-- service_role invece li ha. Le FUNZIONI non sono coperte: il loro default non e' stato
+-- cambiato (serve ancora il revoke esplicito, vedi ST9).
+do $$
+declare
+  r record; p text;
+  v_bad text := ''; v_n int := 0; v_srv boolean;
+begin
+  create table public.zz_st13_tab (id serial primary key, x int);
+  create sequence public.zz_st13_seq;
+  create view public.zz_st13_vista as select id from public.zz_st13_tab;
+  for r in
+    select c.oid, c.relname, c.relkind from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname like 'zz\_st13\_%' and c.relkind in ('r', 'v', 'S')
+  loop
+    v_n := v_n + 1;
+    if r.relkind = 'S' then
+      foreach p in array array['USAGE', 'SELECT', 'UPDATE'] loop
+        if has_sequence_privilege('anon', r.oid, p) or has_sequence_privilege('authenticated', r.oid, p) then
+          v_bad := v_bad || r.relname || ':' || p || ' ';
+        end if;
+      end loop;
+    else
+      foreach p in array array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'] loop
+        if has_table_privilege('anon', r.oid, p) or has_table_privilege('authenticated', r.oid, p) then
+          v_bad := v_bad || r.relname || ':' || p || ' ';
+        end if;
+      end loop;
+    end if;
+  end loop;
+  v_srv := has_table_privilege('service_role', 'public.zz_st13_tab', 'SELECT');
+  insert into test_results(test, expected, actual, passed) values
+    ('ST13 oggetti nuovi (tabella, vista, 2 sequenze): controllati', '4', v_n::text, v_n = 4),
+    ('ST13 oggetti nuovi: nessun privilegio per anon/authenticated', 'nessuno', coalesce(nullif(v_bad,''),'nessuno'), v_bad = ''),
+    ('ST13 oggetti nuovi: service_role li ha ancora', 'true', v_srv::text, v_srv);
+end $$;
+
 -- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):
 -- totali + elenco dei falliti + tutti i test in un unico json.
 -- N4 (ultimo, cambia lo stato dei turni): con tutti i turni bloccati open_round_number()

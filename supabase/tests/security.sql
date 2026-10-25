@@ -61,6 +61,25 @@ insert into public.profiles (id, username, crest_pattern) values
 
 -- ========== FASE 2: predictions ==========
 
+-- Turno futuro sintetico: la suite richiede almeno due turni ancora aperti
+-- (quello che i test bloccano e uno successivo). A fine stagione di calendario
+-- parziale (es. solo il turno 9 inserito) ne manca uno: lo creiamo dentro la
+-- transazione annullata, non tocca i dati reali.
+do $$
+declare
+  v_new int;
+  i int;
+begin
+  if (select count(*) from public.rounds where locks_at > now()) < 2 then
+    select max(round_number) + 1 into v_new from public.rounds;
+    insert into public.rounds (round_number, locks_at) values (v_new, now() + interval '30 days');
+    for i in 1..10 loop
+      insert into public.matches (id, round_number, home, away, kickoff)
+      values ('test-sint-r' || v_new || '-' || i, v_new, 'Sint' || i || 'A', 'Sint' || i || 'B', now() + interval '30 days' + i * interval '1 hour');
+    end loop;
+  end if;
+end $$;
+
 -- P2a: insert su turno chiuso -> rifiutato
 do $$
 begin

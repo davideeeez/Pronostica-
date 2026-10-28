@@ -120,6 +120,47 @@ nel frattempo si gioca solo in leghe.
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").
 
+## Regole decise il 2026-10-28 — DECISE, NON ANCORA IMPLEMENTATE
+
+Non applicare nulla di questa sezione prima della fine del test reale del turno 10
+(istantanea S4: turno concluso e confronto fatto): Marco e BR1 devono poter
+pronosticare il turno 10. Ogni punto richiede piano, dry-run, test di sicurezza e
+conferma come le altre migrazioni.
+
+A) Quando si può pronosticare (scrittura) — separata dalla visibilità
+- Al lancio i 38 turni sono già nel database. Con `round_is_open` (solo `ora <
+  locks_at`) resterebbero scrivibili TUTTI i turni futuri e il turno N+1 mentre N si
+  gioca: va corretto.
+- Un turno è pronosticabile solo se è `open_round_number()` E `round_live_number()`
+  è NULL (l'eccezione della partita rinviata è già coperta dalla finestra di 96 ore).
+  Si pronostica solo il turno successivo e solo tra un turno e l'altro, mai durante
+  un turno in corso.
+- La regola vale per INSERT e UPDATE dei pronostici. La VISIBILITÀ dei pronostici
+  altrui resta `now() >= locks_at` (policy "select own or after lock"): non deve mai
+  dipendere dalla nuova regola, altrimenti i pronostici di un turno non pronosticabile
+  diventerebbero visibili agli altri prima del blocco. Test obbligatorio.
+- Conseguenza accettata: se i risultati del turno N non sono inseriti, N+1 non si
+  apre (fino a 96 ore dal blocco di N). L'apertura dipende dall'inserimento dei
+  risultati da parte di Davide.
+
+B) Home dopo il blocco di un turno
+- Dopo il blocco: "turno in corso", senza countdown, con CTA verso il dettaglio dello
+  scontro (leghe a scontri) o verso la sezione Pronostica! (altrimenti).
+- Dopo la fine del turno: due schede — punti/esito dello scontro e countdown al turno
+  successivo. La doppia scheda dura 24 ore dalla fine del turno; chi non apre l'app in
+  quelle 24 ore la vede alla prima apertura e poi basta; se il turno successivo inizia
+  prima, non la vede più.
+- Oggi non esiste un orario di fine turno: serve un campo scritto da trigger quando lo
+  stato passa a `finita` (es. `matches.finished_at`) e un posto per "già vista" per
+  utente e turno. Dettagli e alternative in discussione.
+- Queste regole sostituiscono, per tutti gli utenti, il paragrafo "HOME (solo leghe a
+  scontri)" qui sotto, che resta valido per le varianti riposo/non avviata.
+
+C) Turni successivi
+- Al lancio il turno successivo esiste sempre (tutti i turni inseriti prima): il
+  frontend non ha bisogno di uno stato "turno successivo mancante", ma non deve
+  rompersi se manca (lo stato "in attesa del prossimo turno" resta come difesa).
+
 ## Debito tecnico aperto (nessuna azione finché non richiesto)
 
 - `is_league_member`/`is_league_owner` sono helper interni per le policy RLS
@@ -173,6 +214,20 @@ delle leghe a scontri completo; mancano i pronostici stagionali (criteri 3 e 4)
 e il frontend. Una migrazione con `DELETE` nel testo si applica a mano, non via
 `apply_migration`.
 
+TEST REALE TURNO 10 (in corso, senza frontend)
+- Leghe create il 2026-10-27 con il claim di `davidezotti`: «Scontri 3 membri (prova)»
+  `f84909cd-f5e3-472e-b93a-ff4fe8a623b2` e «Scontri 4 membri (prova)»
+  `a93c7f49-99cf-4fe7-a41a-2e37b2f5072f`, turno di partenza 10, blocco sabato 31/10
+  alle 15:00 italiane (`locks_at = 2026-10-31 14:00 UTC`). I codici d'invito non
+  vanno nel repo.
+- Calendario atteso e calcolo indipendente: `supabase/tests/manuale/scontri_turno10/`.
+  Ordine di ingresso voluto: lega a 3 = Davide, Marco/BR1; lega a 4 = Davide, Marco,
+  BR1, poi `accountprova` per ultimo (non pronostica il turno 10).
+- Fasi: ordine reale di ingresso e file concreto -> prova generale venerdì 30/10 sera
+  in transazione annullata -> riconteggio membri sabato mattina -> dal blocco
+  istantanee S1-S4 e test negativi (`closed`, `locked`) in transazione annullata.
+- Finché dura il test: nessuna migrazione sulle funzioni `h2h_*`.
+
 MODALITÀ E CREAZIONE
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta
   non si cambia più (trigger sul database).
@@ -194,7 +249,7 @@ CALENDARIO
   ordinati per (joined_at, user_id).
 - Con N dispari si aggiunge un membro fantasma: chi lo incontra **riposa** in quel
   turno; il ciclo dura N turni (N-1 se N pari). Abbinamenti con `user_b` nullo =
-  riposo; non esiste FK sul turno (i turni 10–38 non esistono ancora in `rounds`).
+  riposo; non esiste FK sul turno (nessuna FK; al lancio esisteranno tutti i 38 turni).
 - Il calendario è creato dal database alla prima lettura dopo il blocco
   (`h2h_league_state`, idempotente, con lock di riga), non dal frontend e non
   cambia più. Dopo l'ultimo ciclo completo riparte dal primo abbinamento.
@@ -216,7 +271,7 @@ ESITO DELLO SCONTRO
 - Un turno è "concluso" (`round_play_state`) solo con 10 partite presenti e tutte
   `finita`; un recupero rinviato lo tiene "in corso" per le classifiche.
 
-HOME (solo leghe a scontri)
+HOME (solo leghe a scontri; per le regole generali vedi B sopra)
 - Prima del blocco del turno aperto: "Pronostica". Dal blocco fino a quando non
   resta nessuna partita attiva nella finestra normale: "Segui lo scontro". Chi
   riposa: "Turno di riposo". Finito il turno: "Pronostica" sul turno successivo.

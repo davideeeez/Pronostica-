@@ -122,15 +122,24 @@ nel frattempo si gioca solo in leghe.
 
 ## Regole decise il 2026-10-28 (risposte del 2026-11-05) — DECISE, NON ANCORA IMPLEMENTATE
 
-TEMPI (non anticipare mai)
-- Nessuna migrazione prima del blocco del turno 11 (venerdì 6/11 ore 20:45, `locks_at =
-  2026-11-06 19:45 UTC`) e dopo lo snapshot S1 del test reale degli scontri.
-- A) si applica DOPO il blocco del turno 11, mai prima.
-- B) si applica DOPO S4 del turno 11 (turno concluso e confronto fatto).
+TEMPI (non anticipare mai; aggiornati il 2026-11-05)
+- Nessun codice né migrazione prima del blocco del turno 11 (venerdì 6/11 ore 20:45,
+  `locks_at = 2026-11-06 19:45 UTC`) e dello snapshot S1 del test reale degli scontri.
+- Subito dopo S1, nell'ordine: A1 (`round_is_predictable` + policy), A2 (colonna
+  `is_predictable` nella vista `calendar`), B1 (`matches.finished_at`, trigger,
+  `round_concluded_at`). B1 va applicata PRIMA che Claude inserisca qualunque risultato
+  del turno 11 (Davide avvisa quando arrivano), così il turno 11 avrà `finished_at`
+  reale. Claude dice esplicitamente a Davide quando B1 è applicata.
+- B2 (`round_recap_seen`) e B3 (`home_state()`) si applicano DOPO S4 del turno 11
+  (turno concluso e confronto fatto).
 - I turni 12-38 si inseriscono solo DOPO A (senza A l'API permetterebbe di pronosticare
-  qualunque turno futuro).
+  qualunque turno futuro), e il frontend deve leggere `is_predictable` prima che
+  esista un turno N+1 durante un turno in corso.
 - Ogni punto richiede piano dettagliato approvato, dry-run, test di sicurezza e
-  conferma, come le altre migrazioni.
+  conferma, come le altre migrazioni. A1, A2, B1, B2, B3 sono approvate nel piano del
+  2026-11-05.
+- Il design (Claude Design) arriva il 2026-11-06 in una sessione separata e non serve
+  per il test degli scontri.
 
 A) Quando si può pronosticare (scrittura) — separata dalla visibilità
 - Al lancio i 38 turni sono già nel database. Con `round_is_open` (solo `ora <
@@ -149,9 +158,30 @@ A) Quando si può pronosticare (scrittura) — separata dalla visibilità
 - Conseguenza accettata: se i risultati del turno N non sono inseriti, N+1 non si
   apre (fino a 96 ore dal blocco di N).
 - Rinvii: Davide avvisa e Claude aggiorna il `kickoff` della partita rinviata, che così
-  esce dalla finestra delle 96 ore. Limite noto: se la partita rinviata è la prima del
-  turno (definisce `locks_at`), il trigger rifiuta di spostare `locks_at` più avanti su
-  un turno già chiuso: serve una procedura dedicata prima di quel caso.
+  esce dalla finestra delle 96 ore (la partita non finita dentro la finestra tiene il
+  turno "in corso" e blocca l'apertura di N+1).
+- **LACUNA APERTA — prima partita del turno rinviata.** Il trigger
+  `recompute_round_locks_at` rifiuta ("Turno N già chiuso") ogni modifica che sposti
+  `locks_at` più avanti su un turno già bloccato. Se la partita rinviata è la PRIMA del
+  turno (il suo `kickoff` definisce `locks_at`), spostarne il `kickoff` fa salire
+  `min(kickoff)` e l'UPDATE viene rifiutato: la partita resta dentro la finestra delle 96
+  ore e tiene il turno "in corso" (A, Home, classifiche) fino alla scadenza. Una partita
+  rinviata che non è la prima non ha il problema.
+- PROPOSTA (da discutere dopo S4, nulla implementato): un percorso esplicito per il
+  rinvio invece di allentare il trigger per tutti. Idea: il trigger accetta lo
+  spostamento in avanti SOLO se la transazione imposta un flag locale (es.
+  `set local pronostica.rinvio = 'on'`) e in quel caso lascia `locks_at` INVARIATO (il
+  turno resta bloccato all'ora originale: i pronostici sono già chiusi); ogni rinvio
+  scrive una riga in una piccola tabella di registro (partita, vecchio/nuovo kickoff,
+  istante). Procedura operativa: (1) Davide avvisa; (2) Claude mostra il riepilogo
+  (turno, partita, kickoff vecchio e nuovo) e aspetta la conferma esplicita; (3)
+  un'unica transazione col flag; (4) verifica: `locks_at` invariato, la partita fuori
+  dalla finestra se il nuovo kickoff supera `locks_at + 96h`, vista `calendar` coerente,
+  `round_live_number()`; (5) quando la partita viene giocata Davide inserisce il
+  risultato e il turno si conclude. Da rivedere insieme: il test P4b di `security.sql`
+  ("`locks_at` = min(kickoff)") dovrebbe diventare "`locks_at` <= min(kickoff)" per i
+  turni già chiusi, e le partite rinviate oltre la finestra lasciano il turno "in corso"
+  per le classifiche (regola esistente).
 - Nessun pronostico su turni futuri esiste (verificato): nessuna pulizia.
 - Turno successivo in sola lettura con "Si apre a fine turno" nella scheda Pronostici:
   da confermare con il design (non ricevuto); se non previsto è una lacuna di design.
@@ -252,6 +282,12 @@ TEST REALE SCONTRI — ripartito dal turno 11 (in corso, senza frontend)
 - Ingressi: lega a 3 = Davide, Marco, BR1; lega a 4 = Davide, Marco, BR1, poi
   `accountprova` per ultimo (non pronostica il turno 11). Cut-off ingressi concordato:
   venerdì 6/11 ore 17:00 (il database permette comunque ingressi fino al blocco).
+- Cut-off ingressi alle 17:00: se alle 17:00 le due leghe sono COMPLETE (lega a 3 =
+  Davide, Marco, BR1; lega a 4 = Davide, Marco, BR1, `accountprova` per ultimo) Claude
+  rigenera i codici invito (`regenerate_invite_code`, possibile fino al blocco) così nessuno
+  entra più; se non lo sono non fa nulla e avvisa Davide prima.
+- Promemoria programmati nella sessione per venerdì 6/11 (ore italiane): 17:00 (riconteggio,
+  cut-off, prova generale), 20:30 (ricontrollo membri), 20:46 (S1, poi A1, A2, B1).
 - Calendario atteso e calcolo indipendente: `supabase/tests/manuale/scontri_turno11/`
   (committato prima della prova generale).
 - Fasi: riconteggio membri 17:00 -> prova generale 17:00-19:30 in transazione annullata
@@ -259,7 +295,8 @@ TEST REALE SCONTRI — ripartito dal turno 11 (in corso, senza frontend)
   transazione annullata -> S4 reale a turno concluso, quando Davide comunica che i
   risultati sono inseriti. Test negativi (`closed`, `locked`) sempre in transazione
   annullata.
-- Nessuna migrazione sulle funzioni `h2h_*` fino a S4.
+- Nessuna migrazione sulle funzioni `h2h_*` fino a S4 (A1, A2 e B1 non le toccano e
+  partono dopo S1).
 
 MODALITÀ E CREAZIONE
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta

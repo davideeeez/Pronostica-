@@ -218,6 +218,25 @@ PREREQUISITI DI LANCIO
   essere automatico (fonte e integrazione da decidere, mai cercata dal web da Claude).
 - Tutti i 38 turni nel database prima del lancio, inseriti dopo A.
 
+## Avvio manuale delle leghe a scontri — DECISO il 2026-11-05, NON ANCORA IMPLEMENTATO
+
+Sostituisce, quando sarà implementato, il modello attuale (turno di partenza scelto alla
+creazione, ingressi chiusi e calendario generato al blocco di quel turno). Il test reale
+del turno 11 resta col modello attuale (avvio automatico al blocco). Le migrazioni si
+applicano solo DOPO S4 del turno 11 e DOPO A/B1; piano dettagliato da approvare prima di
+scrivere codice.
+- Le leghe a scontri non partono da sole: il presidente (il membro con ruolo `owner`) le
+  avvia con "Avvia la lega" quando sono tutti dentro.
+- L'avvio fissa il turno di partenza (il primo turno aperto in quel momento, cioè
+  `open_round_number()`), chiude gli ingressi e genera SUBITO il calendario.
+- Meno di 2 membri: non si avvia. Fino all'avvio gli ingressi restano aperti (uscite e
+  rimozioni come oggi). Se il presidente non avvia, la lega aspetta: nessun avvio
+  automatico.
+- Dopo l'avvio: niente ingressi, uscite né rimozioni; il presidente può solo eliminare la
+  lega. Nessuna conversione in classifica (resta valido).
+- Al momento della creazione la lega NON ha turno di partenza: `create_h2h_league` non lo
+  riceve più.
+
 ## Debito tecnico aperto (nessuna azione finché non richiesto)
 
 - `is_league_member`/`is_league_owner` sono helper interni per le policy RLS
@@ -299,6 +318,7 @@ TEST REALE SCONTRI — ripartito dal turno 11 (in corso, senza frontend)
   partono dopo S1).
 
 MODALITÀ E CREAZIONE
+(Descrive il modello attuale, che resta vero per il test del turno 11; vedi "Avvio manuale" sopra per quello deciso.)
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta
   non si cambia più (trigger sul database).
 - Primo rilascio: scontri diretti solo in leghe PRIVATE.
@@ -306,6 +326,7 @@ MODALITÀ E CREAZIONE
   (nessun overload di `create_league`).
 
 ISCRIZIONI E USCITE (solo leghe a scontri; le leghe a classifica restano libere)
+(Modello attuale; con l'avvio manuale ingressi/uscite/rimozioni si chiudono all'avvio, non a `locks_at`.)
 - Si entra fino a `locks_at` del turno di partenza; dopo, nessun ingresso, uscita
   o rimozione. Il creatore può solo eliminare la lega.
 - Prima del blocco, uscita e rimozione funzionano come oggi.
@@ -315,6 +336,7 @@ ISCRIZIONI E USCITE (solo leghe a scontri; le leghe a classifica restano libere)
   eliminazione; avviso al creatore prima del blocco.
 
 CALENDARIO
+(Modello attuale; con l'avvio manuale il calendario si genera all'avvio, non alla prima lettura dopo il blocco.)
 - All'italiana (metodo del cerchio), dal turno di partenza al turno 38. Membri
   ordinati per (joined_at, user_id).
 - Con N dispari si aggiunge un membro fantasma: chi lo incontra **riposa** in quel

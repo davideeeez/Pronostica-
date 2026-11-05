@@ -222,20 +222,42 @@ PREREQUISITI DI LANCIO
 
 Sostituisce, quando sarà implementato, il modello attuale (turno di partenza scelto alla
 creazione, ingressi chiusi e calendario generato al blocco di quel turno). Il test reale
-del turno 11 resta col modello attuale (avvio automatico al blocco). Le migrazioni si
-applicano solo DOPO S4 del turno 11 e DOPO A/B1; piano dettagliato da approvare prima di
-scrivere codice.
+del turno 11 resta col modello attuale (avvio automatico al blocco).
 - Le leghe a scontri non partono da sole: il presidente (il membro con ruolo `owner`) le
   avvia con "Avvia la lega" quando sono tutti dentro.
-- L'avvio fissa il turno di partenza (il primo turno aperto in quel momento, cioè
-  `open_round_number()`), chiude gli ingressi e genera SUBITO il calendario.
+- L'avvio fissa il turno di partenza, chiude gli ingressi e genera SUBITO il calendario.
 - Meno di 2 membri: non si avvia. Fino all'avvio gli ingressi restano aperti (uscite e
   rimozioni come oggi). Se il presidente non avvia, la lega aspetta: nessun avvio
   automatico.
 - Dopo l'avvio: niente ingressi, uscite né rimozioni; il presidente può solo eliminare la
   lega. Nessuna conversione in classifica (resta valido).
-- Al momento della creazione la lega NON ha turno di partenza: `create_h2h_league` non lo
-  riceve più.
+- Al momento della creazione la lega NON ha turno di partenza.
+
+Turno di partenza (regola unica, in una sola funzione di supporto interna)
+- Parte dal primo turno aperto (`open_round_number()`), ma se mancano MENO di 15 minuti al
+  suo blocco la lega parte dal turno successivo. La stessa funzione serve a
+  `would_start_round`/`would_start_locks_at` e all'avvio: il frontend non calcola mai la
+  regola. Se non c'è nessun turno utile, l'avvio è rifiutato (`no_open_round`).
+- Avviare durante un turno in corso fissa il turno successivo al blocco più vicino
+  (es. N in corso -> N+1).
+- `h2h_league_state`, prima dell'avvio, restituisce anche `would_start_round` e
+  `would_start_locks_at` (nulli dopo l'avvio).
+- `start_h2h_league(lega, turno_atteso)`: se il turno calcolato adesso è diverso da
+  `turno_atteso` risponde `round_changed` col turno attuale (e il suo blocco), SENZA
+  effetti; altrimenti avvia. Altri esiti: `ok`, `forbidden`, `already_started`,
+  `too_few_members`, `no_open_round`, `wrong_mode`.
+
+Piano approvato il 2026-11-05 (con queste modifiche); migrazioni SOLO dopo S4 del turno 11,
+dopo A/B1 e dopo B2/B3, in quest'ordine: M1 (schema: `leagues.started_at`, `start_round`
+nullable, vincoli, passaggio dei dati delle leghe già avviate), M2a (funzioni con
+`CREATE OR REPLACE`: funzione di supporto, `h2h_is_locked`, `h2h_generate_schedule`,
+`start_h2h_league`, `create_h2h_league`), M2b (`h2h_league_state`: le colonne nuove
+cambiano il tipo di ritorno, quindi `DROP FUNCTION` + `CREATE` + ripristino dei privilegi,
+da applicare A MANO dal SQL editor in una sola transazione, come la 03b). `join_private_league`,
+`leave_league` e `remove_league_member` non cambiano: delegano a `h2h_is_locked`.
+`create_h2h_league` tiene il parametro turno nella firma, ma deve essere nullo (resto da
+eliminare, vedi debito tecnico). Prima di scrivere codice: piano finale da riapprovare se
+cambia qualcosa.
 
 ## Debito tecnico aperto (nessuna azione finché non richiesto)
 
@@ -275,6 +297,17 @@ scrivere codice.
   dell'utente B sul turno aperto (oggi aggira il conflitto con `on conflict do
   nothing`). Da riscrivere con utenti sintetici, come richiede la regola sui
   test.
+- **Cambio presidente (da risolvere prima del lancio).** Con l'avvio manuale il presidente
+  non può uscire e non si può trasferire il ruolo: se sparisce prima dell'avvio la lega
+  resta ferma e si può solo eliminare. Serve un modo per cambiare presidente.
+- `create_h2h_league` conserverà il parametro del turno di partenza come resto (deve essere
+  nullo) per non fare un overload né un `DROP FUNCTION`: da eliminare con una migrazione
+  a mano quando il frontend non lo usa più.
+- Dopo l'avvio manuale `leagues.start_round` può essere nullo (leghe a scontri non
+  avviate): vanno adeguati i punti che lo leggono — `league_leaderboard` (zeri) e il
+  frontend (`startRound: number`, dicitura "DAL TURNO").
+- La soglia di 15 minuti dell'avvio vive come costante dentro la funzione di supporto:
+  cambiarla richiede una migrazione.
 - Nessun limite di leghe per utente né di membri per lega (scelta di
   prodotto); nessuna moderazione dei nomi delle leghe, nessuna segnalazione o
   nascondimento — da chiudere prima di apertura pubblica.

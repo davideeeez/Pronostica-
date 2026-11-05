@@ -120,12 +120,17 @@ nel frattempo si gioca solo in leghe.
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").
 
-## Regole decise il 2026-10-28 — DECISE, NON ANCORA IMPLEMENTATE
+## Regole decise il 2026-10-28 (risposte del 2026-11-05) — DECISE, NON ANCORA IMPLEMENTATE
 
-Non applicare nulla di questa sezione prima della fine del test reale del turno 10
-(istantanea S4: turno concluso e confronto fatto): Marco e BR1 devono poter
-pronosticare il turno 10. Ogni punto richiede piano, dry-run, test di sicurezza e
-conferma come le altre migrazioni.
+TEMPI (non anticipare mai)
+- Nessuna migrazione prima del blocco del turno 11 (venerdì 6/11 ore 20:45, `locks_at =
+  2026-11-06 19:45 UTC`) e dopo lo snapshot S1 del test reale degli scontri.
+- A) si applica DOPO il blocco del turno 11, mai prima.
+- B) si applica DOPO S4 del turno 11 (turno concluso e confronto fatto).
+- I turni 12-38 si inseriscono solo DOPO A (senza A l'API permetterebbe di pronosticare
+  qualunque turno futuro).
+- Ogni punto richiede piano dettagliato approvato, dry-run, test di sicurezza e
+  conferma, come le altre migrazioni.
 
 A) Quando si può pronosticare (scrittura) — separata dalla visibilità
 - Al lancio i 38 turni sono già nel database. Con `round_is_open` (solo `ora <
@@ -135,31 +140,53 @@ A) Quando si può pronosticare (scrittura) — separata dalla visibilità
   è NULL (l'eccezione della partita rinviata è già coperta dalla finestra di 96 ore).
   Si pronostica solo il turno successivo e solo tra un turno e l'altro, mai durante
   un turno in corso.
-- La regola vale per INSERT e UPDATE dei pronostici. La VISIBILITÀ dei pronostici
-  altrui resta `now() >= locks_at` (policy "select own or after lock"): non deve mai
-  dipendere dalla nuova regola, altrimenti i pronostici di un turno non pronosticabile
-  diventerebbero visibili agli altri prima del blocco. Test obbligatorio.
+- Implementazione approvata nella sostanza: `round_is_predictable(match_id)` SECURITY
+  DEFINER (`round_live_number` resta interna), policy INSERT/UPDATE aggiornate con
+  `ALTER POLICY`, colonna `is_predictable` in fondo alla vista `calendar`. Il frontend
+  non ricalcola mai la regola.
+- La VISIBILITÀ dei pronostici altrui resta `now() >= locks_at`: `round_is_open` e la
+  policy "select own or after lock" NON si toccano. Test di visibilità obbligatorio.
 - Conseguenza accettata: se i risultati del turno N non sono inseriti, N+1 non si
-  apre (fino a 96 ore dal blocco di N). L'apertura dipende dall'inserimento dei
-  risultati da parte di Davide.
+  apre (fino a 96 ore dal blocco di N).
+- Rinvii: Davide avvisa e Claude aggiorna il `kickoff` della partita rinviata, che così
+  esce dalla finestra delle 96 ore. Limite noto: se la partita rinviata è la prima del
+  turno (definisce `locks_at`), il trigger rifiuta di spostare `locks_at` più avanti su
+  un turno già chiuso: serve una procedura dedicata prima di quel caso.
+- Nessun pronostico su turni futuri esiste (verificato): nessuna pulizia.
+- Turno successivo in sola lettura con "Si apre a fine turno" nella scheda Pronostici:
+  da confermare con il design (non ricevuto); se non previsto è una lacuna di design.
 
 B) Home dopo il blocco di un turno
 - Dopo il blocco: "turno in corso", senza countdown, con CTA verso il dettaglio dello
-  scontro (leghe a scontri) o verso la sezione Pronostica! (altrimenti).
+  scontro (leghe a scontri) o verso la sezione Pronostica! (tutti gli altri casi).
 - Dopo la fine del turno: due schede — punti/esito dello scontro e countdown al turno
-  successivo. La doppia scheda dura 24 ore dalla fine del turno; chi non apre l'app in
-  quelle 24 ore la vede alla prima apertura e poi basta; se il turno successivo inizia
-  prima, non la vede più.
-- Oggi non esiste un orario di fine turno: serve un campo scritto da trigger quando lo
-  stato passa a `finita` (es. `matches.finished_at`) e un posto per "già vista" per
-  utente e turno. Dettagli e alternative in discussione.
+  successivo. Dura 24 ore dalla fine del turno; se il turno successivo inizia prima
+  non compare più. La lega usata è quella selezionata nell'header. Riposo: scheda
+  "Turno di riposo" con i punti del turno.
+- "Fine turno" = momento in cui l'ultima partita viene marcata `finita` (inserimento
+  del risultato, non il fischio finale). Campo `matches.finished_at` scritto da un
+  trigger; `round_concluded_at(turno)` ricava la fine del turno.
+- "Vista" = primo render della scheda con l'app in primo piano, anche entro le 24
+  ore. Dopo le 24 ore la scheda compare solo se non è mai stata vista. Stato "già
+  vista" per utente e turno nella tabella `round_recap_seen` (scrittura solo via RPC),
+  non in localStorage. Lo stato Home viene dal database (`home_state()`), mai ricalcolato
+  dal client.
 - Queste regole sostituiscono, per tutti gli utenti, il paragrafo "HOME (solo leghe a
   scontri)" qui sotto, che resta valido per le varianti riposo/non avviata.
+- Design (Claude Design) non ancora ricevuto: i punti che dipendono dal design vanno
+  verificati contro l'allegato prima di scrivere il frontend.
 
 C) Turni successivi
 - Al lancio il turno successivo esiste sempre (tutti i turni inseriti prima): il
   frontend non ha bisogno di uno stato "turno successivo mancante", ma non deve
   rompersi se manca (lo stato "in attesa del prossimo turno" resta come difesa).
+
+PREREQUISITI DI LANCIO
+- **Risultati automatici.** Oggi i risultati e gli stati delle partite si inseriscono a
+  mano e da quell'inserimento dipendono apertura del turno successivo (A), Home e fine
+  turno (B), classifiche. Accettato solo in questa fase: al lancio l'inserimento deve
+  essere automatico (fonte e integrazione da decidere, mai cercata dal web da Claude).
+- Tutti i 38 turni nel database prima del lancio, inseriti dopo A.
 
 ## Debito tecnico aperto (nessuna azione finché non richiesto)
 
@@ -214,19 +241,25 @@ delle leghe a scontri completo; mancano i pronostici stagionali (criteri 3 e 4)
 e il frontend. Una migrazione con `DELETE` nel testo si applica a mano, non via
 `apply_migration`.
 
-TEST REALE TURNO 10 (in corso, senza frontend)
-- Leghe create il 2026-10-27 con il claim di `davidezotti`: «Scontri 3 membri (prova)»
-  `f84909cd-f5e3-472e-b93a-ff4fe8a623b2` e «Scontri 4 membri (prova)»
-  `a93c7f49-99cf-4fe7-a41a-2e37b2f5072f`, turno di partenza 10, blocco sabato 31/10
-  alle 15:00 italiane (`locks_at = 2026-10-31 14:00 UTC`). I codici d'invito non
-  vanno nel repo.
-- Calendario atteso e calcolo indipendente: `supabase/tests/manuale/scontri_turno10/`.
-  Ordine di ingresso voluto: lega a 3 = Davide, Marco/BR1; lega a 4 = Davide, Marco,
-  BR1, poi `accountprova` per ultimo (non pronostica il turno 10).
-- Fasi: ordine reale di ingresso e file concreto -> prova generale venerdì 30/10 sera
-  in transazione annullata -> riconteggio membri sabato mattina -> dal blocco
-  istantanee S1-S4 e test negativi (`closed`, `locked`) in transazione annullata.
-- Finché dura il test: nessuna migrazione sulle funzioni `h2h_*`.
+TEST REALE SCONTRI — ripartito dal turno 11 (in corso, senza frontend)
+- Il test sul turno 10 è saltato (nessun socio è entrato, nessun calendario): le sue
+  leghe sono state eliminate con `delete_league` il 2026-11-05.
+- Leghe create il 2026-11-05 con il claim di `davidezotti`: «Scontri 3 membri (prova)»
+  `68e277bf-9710-4936-9ee7-b913681e265b` e «Scontri 4 membri (prova)»
+  `64a403d3-be87-4ca9-aaaa-6da39c4c133c`, turno di partenza 11, blocco venerdì 6/11
+  alle 20:45 italiane (`locks_at = 2026-11-06 19:45 UTC`). I codici d'invito non vanno
+  nel repo.
+- Ingressi: lega a 3 = Davide, Marco, BR1; lega a 4 = Davide, Marco, BR1, poi
+  `accountprova` per ultimo (non pronostica il turno 11). Cut-off ingressi concordato:
+  venerdì 6/11 ore 17:00 (il database permette comunque ingressi fino al blocco).
+- Calendario atteso e calcolo indipendente: `supabase/tests/manuale/scontri_turno11/`
+  (committato prima della prova generale).
+- Fasi: riconteggio membri 17:00 -> prova generale 17:00-19:30 in transazione annullata
+  -> ricontrollo membri 20:30 -> S1 reale dopo il blocco -> S2 e S3 SIMULATI in
+  transazione annullata -> S4 reale a turno concluso, quando Davide comunica che i
+  risultati sono inseriti. Test negativi (`closed`, `locked`) sempre in transazione
+  annullata.
+- Nessuna migrazione sulle funzioni `h2h_*` fino a S4.
 
 MODALITÀ E CREAZIONE
 - Il creatore sceglie "classifica" o "scontri diretti" alla creazione; la scelta

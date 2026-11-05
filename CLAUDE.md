@@ -256,8 +256,10 @@ cambiano il tipo di ritorno, quindi `DROP FUNCTION` + `CREATE` + ripristino dei 
 da applicare A MANO dal SQL editor in una sola transazione, come la 03b). `join_private_league`,
 `leave_league` e `remove_league_member` non cambiano: delegano a `h2h_is_locked`.
 `create_h2h_league` tiene il parametro turno nella firma, ma deve essere nullo (resto da
-eliminare, vedi debito tecnico). Prima di scrivere codice: piano finale da riapprovare se
-cambia qualcosa.
+eliminare, vedi debito tecnico). APPROVATO nella versione 24969fe, compresa la lettura a catena
+della regola dei 15 minuti (primo turno con blocco a >= 15 minuti). Il via arriva da Davide
+dopo S4 del turno 11 e solo dopo A, B1, B2 e B3; nessuna migrazione prima. Se il piano
+cambia, va riapprovato.
 
 ## Debito tecnico aperto (nessuna azione finché non richiesto)
 

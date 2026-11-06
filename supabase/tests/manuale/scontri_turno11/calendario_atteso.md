@@ -16,7 +16,7 @@ Leghe create il 2026-11-05 (claim `davidezotti`, transazione committata, `create
 
 I codici di invito NON sono nel repo.
 
-## Ingresso previsto (cut-off ingressi: venerdì 6/11 ore 17:00 italiane)
+## Ingresso previsto (cut-off ingressi: venerdì 6/11 ore 19:00 italiane)
 Il calendario ordina i membri per `(joined_at, user_id)`. m1 è sempre `davidezotti` (owner, entrato alla creazione).
 
 | Lega | m1 | m2 | m3 | m4 |
@@ -25,7 +25,7 @@ Il calendario ordina i membri per `(joined_at, user_id)`. m1 è sempre `davidezo
 | 4 membri | davidezotti | Marco o BR1 | l'altro | accountprova (ultimo) |
 
 `accountprova` non pronostica il turno 11. L'ordine reale va letto dalle righe di `league_members` (tabella base)
-alle 17:00 e il file concreto con gli id (`calendario_atteso_concreto_lega3.csv` / `_lega4.csv`, prodotto con
+alle 19:00 e il file concreto con gli id (`calendario_atteso_concreto_lega3.csv` / `_lega4.csv`, prodotto con
 `calcolo_calendario.py --start 11`) va committato PRIMA di iniziare la prova generale.
 
 ## Abbinamenti attesi (turni 11, 12, 13; poi il ciclo si ripete fino al 38)
@@ -62,12 +62,13 @@ ruotati di una posizione a destra); questa parte non è una verifica indipendent
 
 ## Calendario del test (orari italiani, venerdì 6/11)
 1. giovedì 5/11: leghe create, tabella attesa salvata (questo file).
-2. fino alle 17:00 di venerdì: i soci entrano con il codice (accountprova per ultimo nella lega a 4).
-3. 17:00: riconteggio membri (3 e 4), ordine reale di ingresso, file concreto committato.
-4. 17:00–19:30: prova generale in transazione annullata (calendario con i membri reali, `closed`, `locked`, punti
+2. fino alle 19:00 di venerdì: i soci entrano con il codice (accountprova per ultimo nella lega a 4).
+3. 19:00: riconteggio membri (3 e 4), ordine reale di ingresso, file concreto committato; se le leghe sono
+   complete, rigenerazione dei codici invito (cut-off tecnico).
+4. 19:00–20:15: prova generale in transazione annullata (calendario con i membri reali, `closed`, `locked`, punti
    simulati).
-5. 20:30–20:40: ricontrollo che i membri siano gli stessi della prova generale (gli ingressi restano tecnicamente
-   possibili fino al blocco).
+5. 20:30: riconteggio finale (stessi membri della prova generale; se qualcuno è entrato o uscito la prova si
+   rifà).
 6. 20:45: blocco. Dalle 20:46: S1 reale (calendario generato dal DB, lettura e confronto).
 7. S2 e S3: simulati in transazione annullata (mai sul DB reale).
 8. S4: turno concluso, quando Davide comunica che i risultati sono inseriti.

@@ -335,17 +335,19 @@ TEST REALE SCONTRI — ripartito dal turno 11 (in corso, senza frontend)
   nel repo.
 - Ingressi: lega a 3 = Davide, Marco, BR1; lega a 4 = Davide, Marco, BR1, poi
   `accountprova` per ultimo (non pronostica il turno 11). Cut-off ingressi concordato:
-  venerdì 6/11 ore 17:00 (il database permette comunque ingressi fino al blocco).
-- Cut-off ingressi alle 17:00: se alle 17:00 le due leghe sono COMPLETE (lega a 3 =
+  venerdì 6/11 ore 19:00 (spostato dalle 17:00; il database permette comunque ingressi
+  fino al blocco).
+- Cut-off ingressi alle 19:00: se alle 19:00 le due leghe sono COMPLETE (lega a 3 =
   Davide, Marco, BR1; lega a 4 = Davide, Marco, BR1, `accountprova` per ultimo) Claude
   rigenera i codici invito (`regenerate_invite_code`, possibile fino al blocco) così nessuno
   entra più; se non lo sono non fa nulla e avvisa Davide prima.
-- Promemoria programmati nella sessione per venerdì 6/11 (ore italiane): 17:00 (riconteggio,
-  cut-off, prova generale), 20:30 (ricontrollo membri), 20:46 (S1, poi A1, A2, B1).
+- Promemoria programmati nella sessione per venerdì 6/11 (ore italiane): 19:00 (riconteggio,
+  cut-off, prova generale 19:00-20:15), 20:30 (riconteggio finale), 20:46 (S1, poi A1, A2,
+  B1). Se qualcuno entra o esce dopo la prova generale, la prova si rifà.
 - Calendario atteso e calcolo indipendente: `supabase/tests/manuale/scontri_turno11/`
   (committato prima della prova generale).
-- Fasi: riconteggio membri 17:00 -> prova generale 17:00-19:30 in transazione annullata
-  -> ricontrollo membri 20:30 -> S1 reale dopo il blocco -> S2 e S3 SIMULATI in
+- Fasi: riconteggio membri 19:00 -> prova generale 19:00-20:15 in transazione annullata
+  -> riconteggio finale 20:30 -> S1 reale dopo il blocco -> S2 e S3 SIMULATI in
   transazione annullata -> S4 reale a turno concluso, quando Davide comunica che i
   risultati sono inseriti. Test negativi (`closed`, `locked`) sempre in transazione
   annullata.

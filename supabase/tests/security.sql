@@ -2016,7 +2016,9 @@ declare
     "h2h_season_winner_ok": "authenticated",
     "h2h_season_scorer_ok": "authenticated",
     "h2h_season_ready": "authenticated",
-    "round_is_predictable": "authenticated"
+    "round_is_predictable": "authenticated",
+    "matches_set_finished_at": "",
+    "round_concluded_at": ""
   }';
   r record;
   v_act text; v_exp text; v_bad text := ''; v_n int := 0;
@@ -2106,6 +2108,74 @@ begin
     ('ST16 calendar: is_predictable coincide con round_is_predictable() su ogni riga', '0 righe diverse', v_mismatch::text, v_mismatch = 0),
     ('ST16 calendar: is_predictable vero solo sul turno corrente', '0 righe', v_bad_nonopen::text, v_bad_nonopen = 0),
     ('ST16 calendar: authenticated legge is_predictable', 'true', v_auth_ok::text || ' ' || v_msg, v_auth_ok);
+end $$;
+
+-- ST17 (migrazione B1): matches.finished_at scritto da trigger e round_concluded_at().
+-- Turni sintetici gia' bloccati (kickoff nel passato) cosi' round_play_state() puo' dire 'concluso'.
+do $$
+declare
+  v_t0 timestamptz := date_trunc('minute', now()) - interval '5 days';
+  v_r int; v_r2 int;
+  v_col text; n_new int; s1 text;
+  t1 timestamptz; t2 timestamptz; t3 timestamptz; t4 timestamptz; t_manual timestamptz; t_ins timestamptz;
+  c1 timestamptz; c2 timestamptz; mx timestamptz; c9 timestamptz; c10 timestamptz; c_old timestamptz;
+  w_auth boolean := false;
+begin
+  select data_type || '/' || is_nullable into v_col from information_schema.columns
+   where table_schema = 'public' and table_name = 'matches' and column_name = 'finished_at';
+  select max(round_number) + 1 into v_r from public.rounds;
+  v_r2 := v_r + 1;
+  insert into public.rounds (round_number, locks_at) values (v_r, v_t0 + interval '1 hour'), (v_r2, v_t0 + interval '1 hour');
+  insert into public.matches (id, round_number, home, away, kickoff)
+    select 'test-b1-a-' || g, v_r, 'A' || g, 'B' || g, v_t0 + g * interval '1 hour' from generate_series(1, 10) g;
+  insert into public.matches (id, round_number, home, away, kickoff)
+    select 'test-b1-b-' || g, v_r2, 'C' || g, 'D' || g, v_t0 + g * interval '1 hour' from generate_series(1, 9) g;
+  select count(*) filter (where finished_at is not null) into n_new from public.matches where round_number in (v_r, v_r2);
+  update public.matches set home_goals = 1, away_goals = 0 where id = 'test-b1-a-1';
+  select status, finished_at into s1, t1 from public.matches where id = 'test-b1-a-1';
+  perform pg_sleep(0.05);
+  update public.matches set home_goals = 2 where id = 'test-b1-a-1';
+  select finished_at into t2 from public.matches where id = 'test-b1-a-1';
+  update public.matches set finished_at = '2000-01-01 00:00+00' where id = 'test-b1-a-1';
+  select finished_at into t_manual from public.matches where id = 'test-b1-a-1';
+  c1 := public.round_concluded_at(v_r);
+  update public.matches set status = 'in_corso' where id = 'test-b1-a-1';
+  select finished_at into t3 from public.matches where id = 'test-b1-a-1';
+  perform pg_sleep(0.05);
+  update public.matches set status = 'finita' where id = 'test-b1-a-1';
+  select finished_at into t4 from public.matches where id = 'test-b1-a-1';
+  update public.matches set home_goals = 1, away_goals = 1 where round_number = v_r and id <> 'test-b1-a-1';
+  c2 := public.round_concluded_at(v_r);
+  select max(finished_at) into mx from public.matches where round_number = v_r;
+  update public.matches set home_goals = 0, away_goals = 0 where round_number = v_r2;
+  c9 := public.round_concluded_at(v_r2);
+  insert into public.matches (id, round_number, home, away, kickoff, status, home_goals, away_goals)
+    values ('test-b1-ins', v_r2, 'E', 'F', v_t0 + interval '10 hours', 'finita', 2, 2);
+  c10 := public.round_concluded_at(v_r2);
+  select finished_at into t_ins from public.matches where id = 'test-b1-ins';
+  c_old := public.round_concluded_at(1);
+  begin
+    set local role authenticated;
+    perform public.round_concluded_at(1);
+    reset role;
+  exception when insufficient_privilege then
+    reset role;
+    w_auth := true;
+  end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST17 matches.finished_at: colonna timestamptz nullable', 'timestamp with time zone/YES', coalesce(v_col, 'assente'), v_col = 'timestamp with time zone/YES'),
+    ('ST17 partite non finite: finished_at nullo', '0', n_new::text, n_new = 0),
+    ('ST17 gol inseriti a mano (stato di default): finita con finished_at (il trigger parte dopo matches_default_status)', 'finita/true', s1 || '/' || (t1 is not null)::text, s1 = 'finita' and t1 is not null),
+    ('ST17 correzione dei gol restando finita: finished_at invariato', 'true', (t2 = t1)::text, t2 = t1),
+    ('ST17 scrittura manuale di finished_at ignorata', 'true', (t_manual = t1)::text, t_manual = t1),
+    ('ST17 round_concluded_at nullo con una sola partita finita', 'NULL', coalesce(c1::text, 'NULL'), c1 is null),
+    ('ST17 uscendo da finita finished_at torna nullo', 'NULL', coalesce(t3::text, 'NULL'), t3 is null),
+    ('ST17 tornando finita finished_at riparte (istante successivo)', 'true', (t4 > t1)::text, t4 > t1),
+    ('ST17 turno concluso (10 partite finite): round_concluded_at = max(finished_at)', 'true', (c2 is not null and c2 = mx and c2 >= t4)::text, c2 is not null and c2 = mx and c2 >= t4),
+    ('ST17 turno con 9 partite tutte finite: non concluso, round_concluded_at nullo', 'NULL', coalesce(c9::text, 'NULL'), c9 is null),
+    ('ST17 10a partita inserita gia'' finita: finished_at valorizzato e turno concluso a quell''istante', 'true', (t_ins is not null and c10 = t_ins)::text, t_ins is not null and c10 = t_ins),
+    ('ST17 turni giocati prima di B1: nessun orario (round_concluded_at nullo)', 'NULL', coalesce(c_old::text, 'NULL'), c_old is null),
+    ('ST17 round_concluded_at non eseguibile da authenticated (interna)', 'true', w_auth::text, w_auth);
 end $$;
 
 -- ST14/ST15 (migrazione A1): quando si puo' pronosticare (scrittura) e visibilita' dei pronostici altrui.

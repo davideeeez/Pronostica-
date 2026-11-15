@@ -61,23 +61,22 @@ insert into public.profiles (id, username, crest_pattern) values
 
 -- ========== FASE 2: predictions ==========
 
--- Turno futuro sintetico: la suite richiede almeno due turni ancora aperti
--- (quello che i test bloccano e uno successivo). A fine stagione di calendario
--- parziale (es. solo il turno 9 inserito) ne manca uno: lo creiamo dentro la
--- transazione annullata, non tocca i dati reali.
+-- Turni futuri sintetici: la suite richiede almeno due turni ancora aperti
+-- (quello che i test bloccano e uno successivo). Con un calendario parziale (o
+-- tutti i turni gia' bloccati) ne mancano: li creiamo, quanti ne servono, dentro la
+-- transazione annullata; non tocca i dati reali.
 do $$
 declare
   v_new int;
-  i int;
 begin
-  if (select count(*) from public.rounds where locks_at > now()) < 2 then
+  while (select count(*) from public.rounds where locks_at > now()) < 2 loop
     select max(round_number) + 1 into v_new from public.rounds;
-    insert into public.rounds (round_number, locks_at) values (v_new, now() + interval '30 days');
-    for i in 1..10 loop
-      insert into public.matches (id, round_number, home, away, kickoff)
-      values ('test-sint-r' || v_new || '-' || i, v_new, 'Sint' || i || 'A', 'Sint' || i || 'B', now() + interval '30 days' + i * interval '1 hour');
-    end loop;
-  end if;
+    insert into public.rounds (round_number, locks_at) values (v_new, now() + interval '30 days' + v_new * interval '1 day');
+    insert into public.matches (id, round_number, home, away, kickoff)
+    select 'test-sint-r' || v_new || '-' || g, v_new, 'Sint' || g || 'A', 'Sint' || g || 'B',
+           now() + interval '30 days' + v_new * interval '1 day' + g * interval '1 hour'
+    from generate_series(1, 10) g;
+  end loop;
 end $$;
 
 -- P2a: insert su turno chiuso -> rifiutato
@@ -2016,7 +2015,8 @@ declare
     "h2h_match_detail": "authenticated",
     "h2h_season_winner_ok": "authenticated",
     "h2h_season_scorer_ok": "authenticated",
-    "h2h_season_ready": "authenticated"
+    "h2h_season_ready": "authenticated",
+    "round_is_predictable": "authenticated"
   }';
   r record;
   v_act text; v_exp text; v_bad text := ''; v_n int := 0;
@@ -2078,6 +2078,189 @@ begin
     ('ST13 oggetti nuovi (tabella, vista, 2 sequenze): controllati', '4', v_n::text, v_n = 4),
     ('ST13 oggetti nuovi: nessun privilegio per anon/authenticated', 'nessuno', coalesce(nullif(v_bad,''),'nessuno'), v_bad = ''),
     ('ST13 oggetti nuovi: service_role li ha ancora', 'true', v_srv::text, v_srv);
+end $$;
+
+-- ST16 (migrazione A2): la vista calendar espone is_predictable come ultima colonna, coerente con
+-- round_is_predictable(), vera solo sul turno corrente, e leggibile da authenticated.
+do $$
+declare
+  v_last text; v_type text; v_mismatch int; v_bad_nonopen int; v_n int; v_auth_ok boolean := false; v_msg text := '';
+begin
+  select column_name, data_type into v_last, v_type
+  from information_schema.columns where table_schema = 'public' and table_name = 'calendar'
+  order by ordinal_position desc limit 1;
+  select count(*) into v_mismatch from public.calendar c where c.is_predictable is distinct from public.round_is_predictable(c.match_id);
+  select count(*) into v_bad_nonopen from public.calendar c where c.is_predictable and c.round_status <> 'corrente';
+  begin
+    set local role authenticated;
+    set local request.jwt.claim.sub = '560f6bd4-6070-4f6a-a78e-676cb4b8c7c4';
+    select count(*) filter (where is_predictable) into v_n from public.calendar;
+    reset role;
+    v_auth_ok := true;
+  exception when others then
+    reset role;
+    v_msg := sqlerrm;
+  end;
+  insert into test_results(test, expected, actual, passed) values
+    ('ST16 calendar: is_predictable e'' l''ultima colonna, boolean', 'is_predictable/boolean', v_last || '/' || v_type, v_last = 'is_predictable' and v_type = 'boolean'),
+    ('ST16 calendar: is_predictable coincide con round_is_predictable() su ogni riga', '0 righe diverse', v_mismatch::text, v_mismatch = 0),
+    ('ST16 calendar: is_predictable vero solo sul turno corrente', '0 righe', v_bad_nonopen::text, v_bad_nonopen = 0),
+    ('ST16 calendar: authenticated legge is_predictable', 'true', v_auth_ok::text || ' ' || v_msg, v_auth_ok);
+end $$;
+
+-- ST14/ST15 (migrazione A1): quando si puo' pronosticare (scrittura) e visibilita' dei pronostici altrui.
+-- Mondo sintetico isolato: tutti i turni gia' bloccati diventano "finita", quelli aperti vengono bloccati,
+-- poi si creano tre turni propri: uno bloccato e in corso (live), uno aperto, uno futuro.
+create function pg_temp.t_ins(p_user uuid, p_match text, p_upsert boolean default false) returns text
+language plpgsql as $f$
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', p_user::text, true);
+  if p_upsert then
+    insert into public.predictions (user_id, match_id, home_goals, away_goals) values (p_user, p_match, 1, 0)
+    on conflict (user_id, match_id) do update set home_goals = excluded.home_goals, away_goals = excluded.away_goals;
+  else
+    insert into public.predictions (user_id, match_id, home_goals, away_goals) values (p_user, p_match, 1, 0);
+  end if;
+  reset role;
+  return 'ok';
+exception when others then
+  reset role;
+  return sqlstate;
+end $f$;
+create function pg_temp.t_upd(p_user uuid, p_match text, p_goals int) returns int
+language plpgsql as $f$
+declare n int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', p_user::text, true);
+  update public.predictions set home_goals = p_goals where user_id = p_user and match_id = p_match;
+  get diagnostics n = row_count;
+  reset role;
+  return n;
+exception when others then
+  reset role;
+  return -1;
+end $f$;
+create function pg_temp.t_count(p_viewer uuid, p_owner uuid, p_match text) returns int
+language plpgsql as $f$
+declare n int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', p_viewer::text, true);
+  select count(*) into n from public.predictions where user_id = p_owner and match_id = p_match;
+  reset role;
+  return n;
+exception when others then
+  reset role;
+  return -1;
+end $f$;
+do $$
+declare
+  d constant uuid := '00000000-0000-4000-8000-0000000000d1';
+  e constant uuid := '00000000-0000-4000-8000-0000000000e1';
+  c constant uuid := '00000000-0000-4000-8000-0000000000c1';
+  v_base timestamptz := date_trunc('minute', now()) - interval '2 hours';
+  v_max int; rl int; ro int; rf int; g int;
+  m_open constant text := 'test-a1-open-0';
+  m_open2 constant text := 'test-a1-open-1';
+  m_future constant text := 'test-a1-fut-0';
+  m_live constant text := 'test-a1-live-1';
+  v_lg uuid;
+  v_live1 int; v_open1 int; v_live2 int; v_live3 int;
+  r_live_open text; r_live_future text; r_live_locked text; r_live_upsert text; r_live_upsert_exist text;
+  n_upd_live int; v_val_live int;
+  r_nine_live text; r_postp_open text; r_postp_future text; r_postp_upsert text;
+  n_upd_e int; n_upd_d int; v_val_d int;
+  c_live_other int; c_live_own int; c_future_legacy int; c_open_other int; c_open_own int;
+  c_locked_member int; c_locked_nonmember int; r_locked_write text;
+  w_anon boolean := false;
+  o_before boolean; o_after boolean; o_live boolean;
+begin
+  update public.matches set kickoff = kickoff - interval '400 days'
+   where round_number in (select round_number from public.rounds where locks_at > now());
+  update public.matches set status = 'finita', home_goals = coalesce(home_goals, 0), away_goals = coalesce(away_goals, 0)
+   where round_number in (select round_number from public.rounds where locks_at <= now());
+  select max(round_number) into v_max from public.rounds;
+  rl := v_max + 1; ro := v_max + 2; rf := v_max + 3;
+  insert into public.rounds (round_number, locks_at) values (rl, v_base), (ro, now() + interval '10 days'), (rf, now() + interval '20 days');
+  for g in 0..9 loop
+    insert into public.matches (id, round_number, home, away, kickoff) values
+      ('test-a1-live-' || g, rl, 'L' || g || 'A', 'L' || g || 'B', v_base + g * interval '1 minute'),
+      ('test-a1-open-' || g, ro, 'O' || g || 'A', 'O' || g || 'B', now() + interval '10 days' + g * interval '1 hour'),
+      ('test-a1-fut-' || g, rf, 'F' || g || 'A', 'F' || g || 'B', now() + interval '20 days' + g * interval '1 hour');
+  end loop;
+  v_live1 := public.round_live_number();
+  v_open1 := public.open_round_number();
+  o_before := public.round_is_open(m_open);
+  o_live := public.round_is_open(m_live);
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', d::text, true);
+  v_lg := public.create_league('Test A1 lega condivisa', 'public', ro);
+  perform set_config('request.jwt.claim.sub', e::text, true);
+  perform public.join_public_league(v_lg);
+  reset role;
+  r_live_open := pg_temp.t_ins(d, m_open);
+  r_live_future := pg_temp.t_ins(d, m_future);
+  r_live_locked := pg_temp.t_ins(d, m_live);
+  r_live_upsert := pg_temp.t_ins(d, m_open, true);
+  insert into public.predictions (user_id, match_id, home_goals, away_goals) values (d, m_open, 1, 1), (d, m_future, 2, 2)
+  on conflict (user_id, match_id) do update set home_goals = excluded.home_goals, away_goals = excluded.away_goals;
+  n_upd_live := pg_temp.t_upd(d, m_open, 5);
+  select home_goals into v_val_live from public.predictions where user_id = d and match_id = m_open;
+  r_live_upsert_exist := pg_temp.t_ins(d, m_open, true);
+  c_live_other := pg_temp.t_count(e, d, m_open);
+  c_live_own := pg_temp.t_count(d, d, m_open);
+  c_future_legacy := pg_temp.t_count(e, d, m_future);
+  begin
+    set local role anon;
+    insert into public.predictions (user_id, match_id, home_goals, away_goals) values (d, m_open2, 1, 0);
+    reset role;
+  exception when insufficient_privilege then
+    reset role;
+    w_anon := true;
+  end;
+  update public.matches set status = 'finita', home_goals = 1, away_goals = 0 where round_number = rl and id <> 'test-a1-live-9';
+  v_live2 := public.round_live_number();
+  r_nine_live := pg_temp.t_ins(e, m_open);
+  update public.matches set kickoff = v_base + interval '97 hours' where id = 'test-a1-live-9';
+  v_live3 := public.round_live_number();
+  r_postp_open := pg_temp.t_ins(e, m_open);
+  r_postp_future := pg_temp.t_ins(e, m_future);
+  r_postp_upsert := pg_temp.t_ins(e, m_open, true);
+  n_upd_e := pg_temp.t_upd(e, m_open, 3);
+  n_upd_d := pg_temp.t_upd(d, m_open, 7);
+  select home_goals into v_val_d from public.predictions where user_id = d and match_id = m_open;
+  c_open_other := pg_temp.t_count(d, e, m_open);
+  c_open_own := pg_temp.t_count(e, e, m_open);
+  update public.matches set kickoff = kickoff - interval '60 days' where round_number = ro;
+  o_after := public.round_is_open(m_open);
+  c_locked_member := pg_temp.t_count(e, d, m_open);
+  c_locked_nonmember := pg_temp.t_count(c, d, m_open);
+  r_locked_write := pg_temp.t_ins(c, m_open2);
+  insert into test_results(test, expected, actual, passed) values
+    ('ST14 mondo di prova: turno in corso = nuovo turno live, turno aperto = nuovo turno aperto', rl || '/' || ro, coalesce(v_live1::text,'NULL') || '/' || coalesce(v_open1::text,'NULL'), v_live1 = rl and v_open1 = ro),
+    ('ST14 scrittura sul turno aperto mentre un altro turno e'' in corso: rifiutata', '42501', r_live_open, r_live_open = '42501'),
+    ('ST14 scrittura su un turno futuro (N+2): rifiutata', '42501', r_live_future, r_live_future = '42501'),
+    ('ST14 scrittura sul turno gia'' bloccato: rifiutata', '42501', r_live_locked, r_live_locked = '42501'),
+    ('ST14 upsert di una riga nuova durante il turno in corso: rifiutato', '42501', r_live_upsert, r_live_upsert = '42501'),
+    ('ST14 UPDATE di un pronostico esistente durante il turno in corso: 0 righe, valore invariato', '0 righe, valore 1', n_upd_live || ' righe, valore ' || v_val_live, n_upd_live = 0 and v_val_live = 1),
+    ('ST14 upsert di una riga esistente durante il turno in corso: rifiutato', '42501', r_live_upsert_exist, r_live_upsert_exist = '42501'),
+    ('ST14 anon non puo'' scrivere pronostici', 'true', w_anon::text, w_anon),
+    ('ST14 9 partite finite e 1 non finita dentro la finestra: turno ancora in corso, scrittura rifiutata', rl || '/42501', coalesce(v_live2::text,'NULL') || '/' || r_nine_live, v_live2 = rl and r_nine_live = '42501'),
+    ('ST14 partita rinviata oltre le 96 ore: nessun turno in corso', 'NULL', coalesce(v_live3::text,'NULL'), v_live3 is null),
+    ('ST14 a turno concluso la scrittura sul turno aperto riesce (insert, upsert)', 'ok/ok', r_postp_open || '/' || r_postp_upsert, r_postp_open = 'ok' and r_postp_upsert = 'ok'),
+    ('ST14 a turno concluso il turno N+2 resta rifiutato', '42501', r_postp_future, r_postp_future = '42501'),
+    ('ST14 a turno concluso l''UPDATE del proprio pronostico riesce (E 1 riga, D 1 riga e valore 7)', '1/1/7', n_upd_e || '/' || n_upd_d || '/' || v_val_d, n_upd_e = 1 and n_upd_d = 1 and v_val_d = 7),
+    ('ST15 visibilita'': pronostico altrui su un turno non pronosticabile e non bloccato = invisibile', '0', c_live_other::text, c_live_other = 0),
+    ('ST15 visibilita'': il proprio pronostico e'' sempre visibile', '1', c_live_own::text, c_live_own = 1),
+    ('ST15 visibilita'': pronostico altrui su un turno futuro (riga preesistente) = invisibile', '0', c_future_legacy::text, c_future_legacy = 0),
+    ('ST15 visibilita'': pronostico altrui su turno pronosticabile ma non ancora bloccato = invisibile', '0', c_open_other::text, c_open_other = 0),
+    ('ST15 visibilita'': il proprio pronostico sul turno pronosticabile e'' visibile', '1', c_open_own::text, c_open_own = 1),
+    ('ST15 visibilita'': dopo il blocco un membro della stessa lega vede il pronostico', '1', c_locked_member::text, c_locked_member = 1),
+    ('ST15 visibilita'': dopo il blocco un non membro non lo vede', '0', c_locked_nonmember::text, c_locked_nonmember = 0),
+    ('ST14 scrittura sul turno appena bloccato: rifiutata', '42501', r_locked_write, r_locked_write = '42501'),
+    ('ST15 regressione round_is_open: vero prima del blocco, falso dopo, falso su turno bloccato', 'true/false/false', o_before::text || '/' || o_after::text || '/' || o_live::text, o_before and not o_after and not o_live);
 end $$;
 
 -- Una sola query (l'MCP execute_sql restituisce solo l'ultimo result set):

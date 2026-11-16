@@ -73,3 +73,25 @@ ruotati di una posizione a destra); questa parte non è una verifica indipendent
 7. S2 e S3: simulati in transazione annullata (mai sul DB reale).
 8. S4: turno concluso, quando Davide comunica che i risultati sono inseriti.
 Nessuna migrazione sulle funzioni `h2h_*` fino a S4.
+
+## ORDINE REALE DI INGRESSO (letto il 2026-11-06, vale al posto di quello previsto sopra)
+- Lega a 3: m1 Davide, m2 Marco, m3 BR1 (come previsto).
+- **Lega a 4: m1 Davide, m2 accountprova, m3 Marco, m4 BR1** (accountprova è entrato prima di Marco e BR1 e ha pronosticato
+  tutte e 10 le partite del turno 11, contro l'accordo).
+Il calendario atteso concreto (`calendario_atteso_concreto_lega3.csv`, `_lega4.csv`, 56 righe ciascuno, committato il 6/11 PRIMA del
+blocco) usa questi ordini. Il calendario generato dal database coincide byte per byte (md5 identici, vedi `S1_esito.md`).
+
+Turno 11 con l'ordine reale:
+- lega a 3: Davide riposa, Marco – BR1;
+- lega a 4: Davide – BR1, accountprova – Marco (m1–m4, m2–m3).
+Turno 12 lega a 4: Davide – Marco, BR1 – accountprova; turno 13: Davide – accountprova, Marco – BR1.
+Turno 12 lega a 3: Marco riposa, Davide – BR1; turno 13: BR1 riposa, Davide – Marco.
+
+`accountprova` HA pronosticato il turno 11: il caso "chi non pronostica" non si verifica sui dati reali (resta coperto da ST12 e
+dalle simulazioni S2/S3).
+
+## Calcolo indipendente di punti ed esiti (S4)
+`calcolo_esiti.py` (self-test: stessi numeri di ST12) legge SOLO tabelle base esportate con SELECT (matches, predictions, membri,
+calendario atteso) e confronta, riga per riga, con l'output di `h2h_results`, `h2h_standings` e `h2h_match_detail` esportato dal
+database. Regole riscritte nel file (3/1/0 per partita, provvisori/definitivi, esito 3-0 / 1-1 / 0-3, riposo 0 e non giocato,
+punti totali dai soli turni conclusi, rank standard con pari merito).

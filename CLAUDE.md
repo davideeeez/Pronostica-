@@ -120,7 +120,20 @@ nel frattempo si gioca solo in leghe.
   (min(kickoff) del turno) — non va mai scritto a mano. Il trigger rifiuta di
   spostarlo più avanti una volta già passato (il turno non può "riaprire").
 
-## Regole decise il 2026-10-28 (risposte del 2026-11-05) — DECISE, NON ANCORA IMPLEMENTATE
+## Regole decise il 2026-10-28 (risposte del 2026-11-05) — A1, A2 e B1 APPLICATE; B2, B3 DA APPLICARE
+
+STATO (2026-11-16): APPLICATE in produzione, con dry-run, advisor, `security.sql` completo e controllo dati:
+- A1 `round_is_predictable` + policy INSERT/UPDATE dei pronostici (migrazione `round_is_predictable`,
+  2026-11-15). SELECT e `round_is_open` intatte. Test ST14/ST15 (scrittura e visibilità).
+- A2 colonna `is_predictable` in fondo alla vista `calendar` (`calendar_is_predictable`, 2026-11-15). Test ST16.
+- B1 `matches.finished_at`, trigger `matches_set_finished_at` (parte dopo `matches_default_status`) e
+  `round_concluded_at(turno)` interna (`matches_finished_at`, 2026-11-16), applicata PRIMA di qualunque risultato del
+  turno 11. Differenza dal piano: il trigger usa `clock_timestamp()` (non `now()`): ogni partita ha il proprio
+  istante, il fine turno è il massimo. Le partite già giocate restano con `finished_at` nullo. Test ST17.
+- Il turno 11 è ancora senza risultati (0 su 10) e "in corso"; il turno aperto è NULL finché non si inseriscono i
+  turni 12-38. Prima di inserirli il frontend deve leggere `is_predictable` (vedi sotto).
+- Da applicare dopo S4 del turno 11: B2 (`round_recap_seen`) e B3 (`home_state()`), poi M1/M2a/M2b dell'avvio manuale.
+- File: `supabase/migrations/`, bozze e rollback in `supabase/proposte/pronosticabilita/`.
 
 TEMPI (non anticipare mai; aggiornati il 2026-11-05)
 - Nessun codice né migrazione prima del blocco del turno 11 (venerdì 6/11 ore 20:45,

@@ -31,3 +31,8 @@ Tutti: mode=scontri, start=11, locked=true, status=avviata, warn=false, live_rou
 - membri totali dopo i test: 7 (3 + 4), invariati.
 
 Esito S1: coincide con l'atteso.
+
+## Nota (2026-11-16): stato dopo A1, A2 e B1
+Applicate A1 (round_is_predictable), A2 (calendar.is_predictable) e B1 (matches.finished_at) senza toccare le funzioni h2h_*.
+Nessun risultato del turno 11 inserito prima di B1. Il turno 11 resta "in corso" (live) e nessun turno è aperto finché non si
+inseriscono i turni 12-38.

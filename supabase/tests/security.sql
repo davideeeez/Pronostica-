@@ -2118,7 +2118,7 @@ declare
   v_r int; v_r2 int;
   v_col text; n_new int; s1 text;
   t1 timestamptz; t2 timestamptz; t3 timestamptz; t4 timestamptz; t_manual timestamptz; t_ins timestamptz;
-  c1 timestamptz; c2 timestamptz; mx timestamptz; c9 timestamptz; c10 timestamptz; c_old timestamptz;
+  c1 timestamptz; c2 timestamptz; mx timestamptz; c9 timestamptz; c10 timestamptz; c_old timestamptz; n_old int;
   w_auth boolean := false;
 begin
   select data_type || '/' || is_nullable into v_col from information_schema.columns
@@ -2153,7 +2153,9 @@ begin
     values ('test-b1-ins', v_r2, 'E', 'F', v_t0 + interval '10 hours', 'finita', 2, 2);
   c10 := public.round_concluded_at(v_r2);
   select finished_at into t_ins from public.matches where id = 'test-b1-ins';
-  c_old := public.round_concluded_at(1);
+  -- turni storici 2-10: mai toccati dagli altri test (ST12 riscrive il turno 1 nella transazione)
+  c_old := public.round_concluded_at(5);
+  select count(*) into n_old from public.matches where round_number between 2 and 10 and finished_at is not null;
   begin
     set local role authenticated;
     perform public.round_concluded_at(1);
@@ -2174,7 +2176,7 @@ begin
     ('ST17 turno concluso (10 partite finite): round_concluded_at = max(finished_at)', 'true', (c2 is not null and c2 = mx and c2 >= t4)::text, c2 is not null and c2 = mx and c2 >= t4),
     ('ST17 turno con 9 partite tutte finite: non concluso, round_concluded_at nullo', 'NULL', coalesce(c9::text, 'NULL'), c9 is null),
     ('ST17 10a partita inserita gia'' finita: finished_at valorizzato e turno concluso a quell''istante', 'true', (t_ins is not null and c10 = t_ins)::text, t_ins is not null and c10 = t_ins),
-    ('ST17 turni giocati prima di B1: nessun orario (round_concluded_at nullo)', 'NULL', coalesce(c_old::text, 'NULL'), c_old is null),
+    ('ST17 turni storici 2-10 giocati prima di B1: nessun finished_at e round_concluded_at nullo', '0/NULL', n_old::text || '/' || coalesce(c_old::text, 'NULL'), n_old = 0 and c_old is null),
     ('ST17 round_concluded_at non eseguibile da authenticated (interna)', 'true', w_auth::text, w_auth);
 end $$;
 
